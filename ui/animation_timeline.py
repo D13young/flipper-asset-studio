@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QSpinBox,
     QGroupBox,
-    QFormLayout,
+    QGridLayout,
     QLineEdit,
     QFileDialog,
 )
@@ -34,7 +34,7 @@ class AnimationTimelineWidget(QWidget):
 
         # Drag-and-Drop область для кадров
         # кадры добавляются в FlipperAnimationManager и автоматически триггерят обновление UI/preview/meta.
-        
+
         self.drop_area = DragDropArea("📥 Перетащите PNG кадры сюда", [".png"])
         self.drop_area.files_dropped.connect(self._on_frames_dropped)
         layout.addWidget(self.drop_area)
@@ -46,7 +46,6 @@ class AnimationTimelineWidget(QWidget):
         from PyQt6.QtWidgets import QListView
         self.frame_list.setFlow(QListView.Flow.LeftToRight)
         self.frame_list.setSpacing(4)
-
 
         layout.addWidget(self.frame_list)
 
@@ -64,11 +63,12 @@ class AnimationTimelineWidget(QWidget):
         btn_layout.addWidget(self.btn_clear)
         layout.addLayout(btn_layout)
 
-
         # Параметры анимации
         param_group = QGroupBox("⚙️ Animation Parameters")
-        param_layout = QFormLayout()
-        
+        param_layout = QGridLayout()
+        param_layout.setHorizontalSpacing(16)
+        param_layout.setVerticalSpacing(8)
+
         self.spin_fps = QSpinBox(); self.spin_fps.setRange(1, 60); self.spin_fps.setValue(2)
         self.spin_duration = QSpinBox(); self.spin_duration.setRange(100, 99999); self.spin_duration.setValue(3600)
         self.line_name = QLineEdit("CustomDolphin")
@@ -80,16 +80,32 @@ class AnimationTimelineWidget(QWidget):
 
         self.spin_dither_level = QSpinBox(); self.spin_dither_level.setRange(0, 3); self.spin_dither_level.setValue(1)
 
-        param_layout.addRow("Dither Level:", self.spin_dither_level)
-        param_layout.addRow("Frame Rate (FPS):", self.spin_fps)
+        param_layout.addWidget(QLabel("Dither Level:"), 0, 0)
+        param_layout.addWidget(self.spin_dither_level, 0, 1)
+        param_layout.addWidget(QLabel("Frame Rate (FPS):"), 0, 2)
+        param_layout.addWidget(self.spin_fps, 0, 3)
 
-        param_layout.addRow("Duration (ms):", self.spin_duration)
-        param_layout.addRow("Animation Name:", self.line_name)
-        param_layout.addRow("Min Butthurt:", self.spin_bh_min)
-        param_layout.addRow("Max Butthurt:", self.spin_bh_max)
-        param_layout.addRow("Min Level:", self.spin_lv_min)
-        param_layout.addRow("Max Level:", self.spin_lv_max)
-        param_layout.addRow("Weight:", self.spin_weight)
+        param_layout.addWidget(QLabel("Duration (ms):"), 1, 0)
+        param_layout.addWidget(self.spin_duration, 1, 1)
+        param_layout.addWidget(QLabel("Animation Name:"), 1, 2)
+        param_layout.addWidget(self.line_name, 1, 3)
+
+        param_layout.addWidget(QLabel("Min Butthurt:"), 2, 0)
+        param_layout.addWidget(self.spin_bh_min, 2, 1)
+        param_layout.addWidget(QLabel("Max Butthurt:"), 2, 2)
+        param_layout.addWidget(self.spin_bh_max, 2, 3)
+
+        param_layout.addWidget(QLabel("Min Level:"), 3, 0)
+        param_layout.addWidget(self.spin_lv_min, 3, 1)
+        param_layout.addWidget(QLabel("Max Level:"), 3, 2)
+        param_layout.addWidget(self.spin_lv_max, 3, 3)
+
+        param_layout.addWidget(QLabel("Weight:"), 4, 0)
+        param_layout.addWidget(self.spin_weight, 4, 1)
+
+        param_layout.setColumnStretch(1, 1)
+        param_layout.setColumnStretch(3, 1)
+
         param_group.setLayout(param_layout)
         layout.addWidget(param_group)
 
@@ -101,18 +117,14 @@ class AnimationTimelineWidget(QWidget):
         self.btn_clear.clicked.connect(self._clear_frames)
         self.frame_list.currentRowChanged.connect(self._on_selection_changed)
 
-        
         for widget in [self.spin_fps, self.spin_duration, self.spin_bh_min, self.spin_bh_max,
                        self.spin_lv_min, self.spin_lv_max, self.spin_weight]:
             widget.valueChanged.connect(self._emit_meta)
 
         self.spin_dither_level.valueChanged.connect(self._on_dither_level_changed)
 
-
-
         # QLineEdit меняется через textChanged
         self.line_name.textChanged.connect(self._emit_meta)
-
 
     def _on_frames_dropped(self, paths: list):
         if not paths:
@@ -131,7 +143,6 @@ class AnimationTimelineWidget(QWidget):
                 self.manager.add_frame(p, dither_level=dither_level)
             self._refresh_list()
             self._emit_updates()
-
 
     def _move_frame(self, direction):
         curr = self.frame_list.currentRow()
@@ -160,8 +171,6 @@ class AnimationTimelineWidget(QWidget):
         self._refresh_list()
         self._emit_updates()
 
-
-
     def _refresh_list(self):
         self.frame_list.clear()
         for i, f in enumerate(self.manager.frames):
@@ -169,7 +178,6 @@ class AnimationTimelineWidget(QWidget):
             pm = f["preview"].scaled(96, 48, Qt.AspectRatioMode.KeepAspectRatio)
             from PyQt6.QtGui import QIcon
             item.setIcon(QIcon(pm))
-
 
             item.setData(Qt.ItemDataRole.UserRole, i)
             self.frame_list.addItem(item)

@@ -37,7 +37,7 @@ class DragDropArea(QWidget):
                 color: #aaa;
             }
         """)
-        self.label.setMinimumSize(400, 200)
+        self.label.setMinimumSize(200, 100)
         
         layout.addWidget(self.label)
         self.setLayout(layout)

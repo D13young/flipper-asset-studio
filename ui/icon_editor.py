@@ -21,6 +21,7 @@ from PyQt6.QtGui import QIcon
 from pathlib import Path
 
 from core.image_processor import FlipperImageProcessor
+from ui.drag_drop_widget import DragDropArea
 
 
 class IconEditorWidget(QWidget):
@@ -55,10 +56,6 @@ class IconEditorWidget(QWidget):
                 output_w=w,
                 output_h=h,
             )
-            
-            # Защита: процесс_png возвращает bytes, сформированные из img.convert("1", dither=...)
-            # Если вдруг PIL вернёт одинаковый результат, это всё равно будет соответствовать выбранному dither_level.
-
 
             preview_pm = proc["preview"]
             frame_bytes = proc["bytes"]
@@ -75,8 +72,6 @@ class IconEditorWidget(QWidget):
 
         self._emit_ready()
 
-
-
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -85,7 +80,7 @@ class IconEditorWidget(QWidget):
         settings_group = QGroupBox("Settings")
 
         settings_layout = QFormLayout()
-        
+
         self.app_name_edit = QLineEdit("passport")
         self.app_name_edit.setEnabled(False)
 
@@ -93,7 +88,7 @@ class IconEditorWidget(QWidget):
         self.passport_kind_cb.addItems(["passport_128x64", "passport_bad_46x49", "passport_happy_46x49", "passport_okay_46x49"])
         self.passport_kind_cb.setCurrentText("passport_128x64")
         self.app_name_edit.setToolTip("Название папки приложения (например: RFID, NFC, SubGhz)")
-        
+
         self.spin_w = QSpinBox()
         self.spin_w.setRange(1, 128)
         self.spin_w.setValue(128)
@@ -110,13 +105,14 @@ class IconEditorWidget(QWidget):
 
         settings_layout.addRow("App Name:", self.app_name_edit)
         settings_layout.addRow("Passport file:", self.passport_kind_cb)
-        #settings_layout.addRow("Width:", self.spin_w)
-        #settings_layout.addRow("Height:", self.spin_h)
         settings_layout.addRow("Dither level:", self.dither_cb)
         settings_group.setLayout(settings_layout)
         layout.addWidget(settings_group)
 
-
+        # Drag-and-Drop область
+        self.drag_drop = DragDropArea("Перетащите PNG файлы сюда", [".png"])
+        self.drag_drop.files_dropped.connect(self.add_frames)
+        layout.addWidget(self.drag_drop)
 
         # Список кадров
         self.frame_list = QListWidget()
@@ -132,7 +128,7 @@ class IconEditorWidget(QWidget):
         btn_layout = QHBoxLayout()
         self.btn_add = QToolButton()
         self.btn_add.setText("Add Frames")
-        
+
         self.btn_clear = QToolButton()
         self.btn_clear.setText("Clear")
 
@@ -160,30 +156,23 @@ class IconEditorWidget(QWidget):
         self.passport_kind_cb.currentTextChanged.connect(self._apply_passport_kind_preset)
         self.dither_cb.currentTextChanged.connect(self._on_dither_changed)
 
-
-
-
-
         self._apply_passport_preset()
         self._apply_passport_kind_preset(self.passport_kind_cb.currentText())
 
-
-    def _add_frames(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Add Icon Frames", "", "PNG (*.png)")
+    def add_frames(self, paths):
         dither_level = int(self.dither_cb.currentText().split(" ")[0])
         w = int(self.spin_w.value())
         h = int(self.spin_h.value())
 
-
         for p in sorted(paths):
             filename = Path(p).name
 
-            # Конвертируем PNG → байты Flipper → превью, чтобы превью отображалось в списке
-            # process_png ждёт параметр dither_level
-            proc = FlipperImageProcessor.process_png(p, dither_level=dither_level)
-
-
-
+            proc = FlipperImageProcessor.process_png(
+                p,
+                dither_level=dither_level,
+                output_w=w,
+                output_h=h,
+            )
 
             preview_pm = proc["preview"]
             frame_bytes = proc["bytes"]
@@ -200,6 +189,9 @@ class IconEditorWidget(QWidget):
 
         self._emit_ready()
 
+    def _add_frames(self):
+        paths, _ = QFileDialog.getOpenFileNames(self, "Add Icon Frames", "", "PNG (*.png)")
+        self.add_frames(paths)
 
     def _clear(self):
         self.frame_list.clear()
@@ -248,13 +240,12 @@ class IconEditorWidget(QWidget):
                 self.spin_h.setValue(49)
             return
 
-
     def _emit_ready(self):
 
         count = self.frame_list.count()
         # В Icons fps/анимация не используются, поэтому надпись убираем
         _ = count
-        
+
         # Собираем данные для экспорта.
         payload = []
         for i in range(count):
@@ -274,5 +265,3 @@ class IconEditorWidget(QWidget):
             self.spin_h.value(),
             dither_level,
         )
-
-
