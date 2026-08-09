@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor
 from PyQt6.QtWidgets import (
@@ -18,13 +19,14 @@ from PyQt6.QtWidgets import (
     QSplitter,
 )
 
-
-from core.image_processor import FlipperImageProcessor
+# В этом редакторе:
+# - убраны FPS UI и превью
+# - но оставлена совместимость с ui/main_window.py по сигнатуре/параметрам: fps=1 по умолчанию.
 
 
 class PixelCanvas(QWidget):
-
     pixel_changed = pyqtSignal(int, int, int)
+    painting_finished = pyqtSignal()
 
     def __init__(self, width_px: int = 128, height_px: int = 64, cell: int = 5, parent: QWidget | None = None):
         super().__init__(parent)
@@ -32,34 +34,47 @@ class PixelCanvas(QWidget):
         self.width_px = int(width_px)
         self.height_px = int(height_px)
 
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        self.pixels: list[list[int]] = [
-            [0 for _ in range(self.width_px)] for _ in range(self.height_px)
-        ]
+        self.pixels: list[list[int]] = [[0 for _ in range(self.width_px)] for _ in range(self.height_px)]
+
+        # zoom in [min_zoom..max_zoom]
+        self.zoom_level = 1
+        self.min_zoom = 1
+        self.max_zoom = 6
+
+        # pan в screen-пикселях (int) для стабильного рендера
+        self.pan_offset_x: int = 0
+        self.pan_offset_y: int = 0
+
+        self._panning = False
+        self._pan_last_pos = None
+
+        self._hover_x: int | None = None
+        self._hover_y: int | None = None
 
         self._painting = False
         self._paint_mode = 1
+
+        self._is_space_held = False  # панорамирование через пробел
+
         self._apply_geometry_limits()
 
     def _apply_geometry_limits(self):
-        w = self.width_px * self.cell
-        h = self.height_px * self.cell
-        self.setMinimumHeight(h)
         self.updateGeometry()
+        self.setMinimumSize(self.width_px * self.cell, self.height_px * self.cell)
 
     def set_canvas_size(self, width_px: int, height_px: int):
         width_px = int(width_px)
         height_px = int(height_px)
-
         if width_px <= 0 or height_px <= 0:
             return
 
-        # Пересоздаём пиксельную матрицу под новый размер
         self.width_px = width_px
         self.height_px = height_px
         self.pixels = [[0 for _ in range(self.width_px)] for _ in range(self.height_px)]
-        self._apply_geometry_limits()
+        self._clamp_pan_offset()
         self.update()
 
     def set_pixels(self, pixels: list[list[int]]):
@@ -72,18 +87,119 @@ class PixelCanvas(QWidget):
         self.pixels = [[1 if pixels[y][x] else 0 for x in range(self.width_px)] for y in range(self.height_px)]
         self.update()
 
-    def clear(self):
-        for y in range(self.height_px):
-            for x in range(self.width_px):
-                self.pixels[y][x] = 0
-        self.update()
+    def _cell_size(self) -> int:
+        return max(1, self.cell * self.zoom_level)
+
+    def _clamp_pan_offset(self):
+        """Не дает утащить холст полностью за пределы видимой области."""
+        cell_px = self._cell_size()
+        w_total = self.width_px * cell_px
+        h_total = self.height_px * cell_px
+
+        if w_total < self.width():
+            self.pan_offset_x = (self.width() - w_total) // 2
+        else:
+            self.pan_offset_x = max(self.width() - w_total, min(0, self.pan_offset_x))
+
+        if h_total < self.height():
+            self.pan_offset_y = (self.height() - h_total) // 2
+        else:
+            self.pan_offset_y = max(self.height() - h_total, min(0, self.pan_offset_y))
+
+    def _draw_checkerboard(self, painter: QPainter, cell_px: int):
+        painter.setPen(Qt.PenStyle.NoPen)
+        color1 = QColor(30, 30, 30)
+        color2 = QColor(45, 45, 45)
+
+        x0 = self.pan_offset_x
+        y0 = self.pan_offset_y
+
+        start_x = max(0, (-x0) // cell_px)
+        start_y = max(0, (-y0) // cell_px)
+        end_x = min(self.width_px, (self.width() - x0 + cell_px - 1) // cell_px)
+        end_y = min(self.height_px, (self.height() - y0 + cell_px - 1) // cell_px)
+
+        for y in range(start_y, end_y):
+            for x in range(start_x, end_x):
+                painter.setBrush(color1 if (x + y) % 2 == 0 else color2)
+                painter.drawRect(x0 + x * cell_px, y0 + y * cell_px, cell_px, cell_px)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+        cell_px = self._cell_size()
+        w_total = self.width_px * cell_px
+        h_total = self.height_px * cell_px
+
+        # 1) фон
+        self._draw_checkerboard(painter, cell_px)
+
+        # 2) culling видимой области
+        start_x = max(0, (-self.pan_offset_x) // cell_px)
+        start_y = max(0, (-self.pan_offset_y) // cell_px)
+        end_x = min(self.width_px, (self.width() - self.pan_offset_x + cell_px - 1) // cell_px)
+        end_y = min(self.height_px, (self.height() - self.pan_offset_y + cell_px - 1) // cell_px)
+
+        # 3) пиксели
+        on_color = QColor(230, 230, 230)
+        for y in range(start_y, end_y):
+            row = self.pixels[y]
+            for x in range(start_x, end_x):
+                if row[x]:
+                    px = self.pan_offset_x + x * cell_px
+                    py = self.pan_offset_y + y * cell_px
+                    painter.fillRect(px, py, cell_px, cell_px, on_color)
+
+        # 4) hover подсветка
+        if self._hover_x is not None and self._hover_y is not None:
+            if start_x <= self._hover_x < end_x and start_y <= self._hover_y < end_y:
+                hx = self.pan_offset_x + self._hover_x * cell_px
+                hy = self.pan_offset_y + self._hover_y * cell_px
+                painter.setPen(QColor(137, 180, 250))
+                painter.drawRect(hx, hy, cell_px - 1, cell_px - 1)
+
+        # 5) сетка в видимой области
+        painter.setPen(QColor(40, 40, 40))
+        x0 = self.pan_offset_x
+        y0 = self.pan_offset_y
+
+        for x in range(start_x, end_x + 1):
+            gx = x0 + x * cell_px
+            painter.drawLine(gx, y0 + start_y * cell_px, gx, y0 + end_y * cell_px)
+
+        for y in range(start_y, end_y + 1):
+            gy = y0 + y * cell_px
+            painter.drawLine(x0 + start_x * cell_px, gy, x0 + end_x * cell_px, gy)
+
+        # 6) граница холста
+        painter.setPen(QColor(100, 100, 100))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(x0, y0, w_total, h_total)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            self._is_space_held = True
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            self._is_space_held = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+        else:
+            super().keyReleaseEvent(event)
 
     def _pos_to_cell(self, pos_x: int, pos_y: int):
-        x = pos_x // self.cell
-        y = pos_y // self.cell
+        cell_px = self._cell_size()
+        x = (pos_x - self.pan_offset_x) // cell_px
+        y = (pos_y - self.pan_offset_y) // cell_px
         if x < 0 or y < 0 or x >= self.width_px or y >= self.height_px:
             return None
-        return x, y
+        return int(x), int(y)
 
     def _paint_cell(self, x: int, y: int, value: int):
         v = 1 if value else 0
@@ -94,10 +210,39 @@ class PixelCanvas(QWidget):
         self.update()
 
     def mousePressEvent(self, event):
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(x0, y0, w_total, h_total)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            self._is_space_held = True
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            self._is_space_held = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+        else:
+            super().keyReleaseEvent(event)
+
+    def mousePressEvent(self, event):
+        is_pan = event.button() == Qt.MouseButton.MiddleButton or (event.button() == Qt.MouseButton.LeftButton and self._is_space_held)
+        
+        if is_pan:
+            self._panning = True
+            self._pan_last_pos = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
+
         if event.button() not in (Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
             return
 
-        cell = self._pos_to_cell(int(event.position().x()), int(event.position().y()))
+        p = event.position()
+        cell = self._pos_to_cell(int(p.x()), int(p.y()))
         if cell is None:
             return
 
@@ -108,53 +253,97 @@ class PixelCanvas(QWidget):
         self._paint_cell(x, y, self._paint_mode)
 
     def mouseMoveEvent(self, event):
-        if not self._painting:
+        if self._panning and self._pan_last_pos is not None:
+            dx = int(event.position().x()) - int(self._pan_last_pos.x())
+            dy = int(event.position().y()) - int(self._pan_last_pos.y())
+            self.pan_offset_x += dx
+            self.pan_offset_y += dy
+            self._pan_last_pos = event.position()
+            self._clamp_pan_offset()  # Ограничиваем выход за границы
+            self.update()
             return
 
-        cell = self._pos_to_cell(int(event.position().x()), int(event.position().y()))
+        if self._painting:
+            p = event.position()
+            cell = self._pos_to_cell(int(p.x()), int(p.y()))
+            if cell is None:
+                return
+            x, y = cell
+            self._paint_cell(x, y, self._paint_mode)
+            return
+
+        p = event.position()
+        cell = self._pos_to_cell(int(p.x()), int(p.y()))
         if cell is None:
+            if self._hover_x is not None or self._hover_y is not None:
+                self._hover_x, self._hover_y = None, None
+                self.update()
             return
 
         x, y = cell
-        self._paint_cell(x, y, self._paint_mode)
+        if self._hover_x != x or self._hover_y != y:
+            self._hover_x, self._hover_y = x, y
+            self.update()
 
     def mouseReleaseEvent(self, event):
-        self._painting = False
+        if event.button() == Qt.MouseButton.MiddleButton or (event.button() == Qt.MouseButton.LeftButton and self._is_space_held):
+            self._panning = False
+            self._pan_last_pos = None
+            self.setCursor(Qt.CursorShape.ClosedHandCursor if self._is_space_held else Qt.CursorShape.ArrowCursor)
+            return
+        
+        if self._painting:
+            self._painting = False
+            self.painting_finished.emit()  # Сигнал для сохранения состояния в Undo
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.fillRect(0, 0, self.width_px * self.cell, self.height_px * self.cell, QColor(10, 10, 10))
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
 
-        on_color = QColor(230, 230, 230)
-        grid_color = QColor(40, 40, 40)
+        step = 1 if delta > 0 else -1
+        new_zoom = max(self.min_zoom, min(self.max_zoom, self.zoom_level + step))
+        if new_zoom == self.zoom_level:
+            return
 
-        for y in range(self.height_px):
-            for x in range(self.width_px):
-                if self.pixels[y][x]:
-                    painter.fillRect(x * self.cell, y * self.cell, self.cell, self.cell, on_color)
+        p = event.position()
+        cursor_x = int(p.x())
+        cursor_y = int(p.y())
 
-        painter.setPen(grid_color)
-        for x in range(self.width_px + 1):
-            painter.drawLine(x * self.cell, 0, x * self.cell, self.height_px * self.cell)
-        for y in range(self.height_px + 1):
-            painter.drawLine(0, y * self.cell, self.width_px * self.cell, y * self.cell)
+        cell_old = self._cell_size()
+        cell_new = max(1, self.cell * new_zoom)
+
+        world_x_num = cursor_x - self.pan_offset_x
+        world_y_num = cursor_y - self.pan_offset_y
+
+        self.zoom_level = new_zoom
+
+        self.pan_offset_x = cursor_x - (world_x_num * cell_new) // cell_old
+        self.pan_offset_y = cursor_y - (world_y_num * cell_new) // cell_old
+
+        self._clamp_pan_offset()  # Ограничиваем после зума
+        self.update()
 
 
 class CreateEditorWidget(QWidget):
-    # app_name, frames_bytes, w, h, fps
     icon_ready = pyqtSignal(str, list, int, int, int)
 
-    def get_frames_bytes_list(self) -> list[bytes]:
-        return list(self._frame_bytes)
+    def get_frames_pixels_list(self) -> list[list[list[int]]]:
+        return list(self.frames_pixels)
 
     def get_params(self) -> tuple[int, int, int]:
-        return int(self.canvas.width_px), int(self.canvas.height_px), int(self.spin_fps.value())
+        # fps=1 (UI FPS/Preview убраны по ТЗ, но main_window ожидает fps)
+        return int(self.canvas.width_px), int(self.canvas.height_px), 1
 
     def __init__(self):
         super().__init__()
         self.active_index = 0
         self.frames_pixels: list[list[list[int]]] = []
-        self._frame_bytes: list[bytes] = []
+        
+        # Undo / Redo стеки
+        self.undo_stack: list[list[list[int]]] = []
+        self.redo_stack: list[list[list[int]]] = []
+        self.max_history = 30
 
         self._setup_ui()
         self._connect_signals()
@@ -175,27 +364,17 @@ class CreateEditorWidget(QWidget):
         self.spin_w = QSpinBox(); self.spin_w.setRange(1, 128); self.spin_w.setValue(128)
         self.spin_h = QSpinBox(); self.spin_h.setRange(1, 128); self.spin_h.setValue(64)
 
-        self.spin_fps = QSpinBox()
-        self.spin_fps.setRange(1, 60)
-        self.spin_fps.setValue(5)
-
         settings_layout.addRow("App Name:", self.app_name_edit)
         settings_layout.addRow("Width (px):", self.spin_w)
         settings_layout.addRow("Height (px):", self.spin_h)
-        settings_layout.addRow("FPS (для анимации):", self.spin_fps)
         settings_group.setLayout(settings_layout)
         layout.addWidget(settings_group)
 
         canvas_group = QGroupBox("🖼️ Canvas")
         canvas_layout = QVBoxLayout(canvas_group)
 
-        # Уменьшаем визуальное поле: cell меньше и canvas фиксируем по высоте на уровне layout.
         self.canvas = PixelCanvas(128, 64, cell=4)
-        # Сделаем меньше вертикальное “вытягивание”
-        self.canvas.setMaximumHeight(260)
         canvas_layout.addWidget(self.canvas)
-
-
         layout.addWidget(canvas_group)
 
         frames_group = QGroupBox("Frames")
@@ -219,37 +398,28 @@ class CreateEditorWidget(QWidget):
         btn_layout.addWidget(self.btn_clear)
         frames_layout.addLayout(btn_layout)
 
-        # Сделаем Frames и Preview растягиваемыми / вертикальный splitter
-        preview_group = QGroupBox("Preview")
-        preview_layout = QVBoxLayout(preview_group)
-        self.preview_label = QLabel()
-        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumHeight(120)
-        self.preview_label.setStyleSheet(
-            "QLabel { background: #0a0a0a; border: 2px solid #333; color: #888; font-size: 14px; }"
-        )
-        self.preview_label.setText("Нарисуйте пиксели")
-        self.preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        preview_layout.addWidget(self.preview_label)
-
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(frames_group)
-        splitter.addWidget(preview_group)
 
-        # чтобы QListWidget и Preview корректно отдавали место при растяжении
         self.frame_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        splitter.setSizes([320, 200])
+        splitter.setStretchFactor(0, 1)
         layout.addWidget(splitter)
+
+        layout.setStretch(0, 0)
+        layout.setStretch(1, 0)
+        layout.setStretch(2, 1)
+        layout.setStretch(3, 0)
 
         self.lbl_status = QLabel("Кадры: 1 | Активный: 0")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_status.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.lbl_status)
-
 
     def _connect_signals(self):
         self.canvas.pixel_changed.connect(self._on_canvas_pixel_changed)
+        # Сохраняем состояние после завершения действия (mouseRelease) для Undo
+        self.canvas.painting_finished.connect(self._save_state)
 
         self.btn_add_frame.clicked.connect(self._add_frame)
         self.btn_remove_frame.clicked.connect(self._remove_active_frame)
@@ -257,12 +427,24 @@ class CreateEditorWidget(QWidget):
         self.btn_next.clicked.connect(lambda: self._change_active(1))
         self.btn_clear.clicked.connect(self._clear_active_frame)
 
-        self.spin_fps.valueChanged.connect(self._emit_ready)
         self.app_name_edit.textChanged.connect(self._emit_ready)
         self.frame_list.currentRowChanged.connect(self._on_list_selection)
 
         self.spin_w.valueChanged.connect(self._on_canvas_size_changed)
         self.spin_h.valueChanged.connect(self._on_canvas_size_changed)
+
+    def keyPressEvent(self, event):
+        """Горячие клавиши Undo/Redo"""
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            if event.key() == Qt.Key.Key_Z:
+                self.undo()
+                event.accept()
+                return
+            elif event.key() == Qt.Key.Key_Y:
+                self.redo()
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def _on_canvas_size_changed(self):
         w = int(self.spin_w.value())
@@ -273,28 +455,45 @@ class CreateEditorWidget(QWidget):
         return [[0 for _ in range(w)] for _ in range(h)]
 
     def _set_canvas_size(self, w: int, h: int, recreate_frames_if_empty: bool):
-        # Canvas
+        old_w = self.canvas.width_px
+        old_h = self.canvas.height_px
+        
         self.canvas.set_canvas_size(w, h)
 
-        # Frames
         if not self.frames_pixels and recreate_frames_if_empty:
             self.frames_pixels = [self._create_blank_frame(w, h)]
             self.active_index = 0
             self._refresh_frame_list()
             return
 
-        # Если размеры меняются — пересобираем текущий active frame с центрированием
         if not self.frames_pixels:
             self.frames_pixels = [self._create_blank_frame(w, h)]
             self.active_index = 0
             self._refresh_frame_list()
             return
 
-        self.frames_pixels = [self._create_blank_frame(w, h) for _ in range(len(self.frames_pixels))]
+        # УМНОЕ ИЗМЕНЕНИЕ РАЗМЕРА: сохраняем нарисованные пиксели
+        self._resize_frames(w, h, old_w, old_h)
+        
         self.active_index = min(self.active_index, len(self.frames_pixels) - 1)
         self._refresh_frame_list()
         self._sync_canvas_from_active()
         self._emit_ready()
+
+    def _resize_frames(self, new_w: int, new_h: int, old_w: int, old_h: int):
+        """Изменяет размер всех кадров, сохраняя существующие пиксели"""
+        for i in range(len(self.frames_pixels)):
+            old_frame = self.frames_pixels[i]
+            new_frame = self._create_blank_frame(new_w, new_h)
+            
+            copy_h = min(old_h, new_h)
+            copy_w = min(old_w, new_w)
+            
+            for y in range(copy_h):
+                for x in range(copy_w):
+                    new_frame[y][x] = old_frame[y][x]
+                    
+            self.frames_pixels[i] = new_frame
 
     def _ensure_frame(self, idx: int):
         while len(self.frames_pixels) <= idx:
@@ -315,7 +514,6 @@ class CreateEditorWidget(QWidget):
 
     def _sync_canvas_from_active(self):
         self.canvas.set_pixels(self.frames_pixels[self.active_index])
-        self._update_preview()
         self._update_status()
 
     def _update_status(self):
@@ -323,17 +521,33 @@ class CreateEditorWidget(QWidget):
 
     def _on_canvas_pixel_changed(self, x: int, y: int, v: int):
         self.frames_pixels[self.active_index][y][x] = 1 if v else 0
-        self._update_preview()
         self._emit_ready()
 
-    def _update_preview(self):
-        pixels = self.frames_pixels[self.active_index]
-        w = self.canvas.width_px
-        h = self.canvas.height_px
 
-        data = FlipperImageProcessor.pack_pixels_to_flipper_bytes(pixels, width=w, height=h)
-        pm = FlipperImageProcessor.bytes_to_preview(data, width=w, height=h, scale=3)
-        self.preview_label.setPixmap(pm)
+    # --- Undo / Redo Logic ---
+    def _save_state(self):
+        """Сохраняет текущий кадр в историю перед изменением"""
+        self.undo_stack.append(copy.deepcopy(self.frames_pixels[self.active_index]))
+        if len(self.undo_stack) > self.max_history:
+            self.undo_stack.pop(0)
+        self.redo_stack.clear()
+
+    def undo(self):
+        if not self.undo_stack:
+            return
+        self.redo_stack.append(copy.deepcopy(self.frames_pixels[self.active_index]))
+        self.frames_pixels[self.active_index] = self.undo_stack.pop()
+        self._sync_canvas_from_active()
+        self._emit_ready()
+
+    def redo(self):
+        if not self.redo_stack:
+            return
+        self.undo_stack.append(copy.deepcopy(self.frames_pixels[self.active_index]))
+        self.frames_pixels[self.active_index] = self.redo_stack.pop()
+        self._sync_canvas_from_active()
+        self._emit_ready()
+    # -------------------------
 
     def _add_frame(self):
         w = self.canvas.width_px
@@ -390,16 +604,9 @@ class CreateEditorWidget(QWidget):
             return
 
         app_name = self.app_name_edit.text()
-        fps = int(self.spin_fps.value())
+        # fps=1 (UI FPS/Preview убраны по ТЗ, но main_window ожидает fps)
+        fps = 1
         w = int(self.canvas.width_px)
         h = int(self.canvas.height_px)
 
-        frame_bytes = [
-            FlipperImageProcessor.pack_pixels_to_flipper_bytes(frame, width=w, height=h)
-            for frame in self.frames_pixels
-        ]
-        self._frame_bytes = frame_bytes
-
-        self.icon_ready.emit(app_name, frame_bytes, w, h, fps)
-
-
+        self.icon_ready.emit(app_name, self.frames_pixels, w, h, fps)

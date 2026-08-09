@@ -1,12 +1,17 @@
+# ui/main_window.py
 import os
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QListWidget, QLabel, QTabWidget,
     QToolBar, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
-    QFileDialog, QMessageBox, QCheckBox, QTextEdit,
+    QFileDialog, QMessageBox, QCheckBox, QTextEdit, QSizePolicy,
 )
+from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 
 from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtGui import QIcon
 from pathlib import Path
+
+from ui.styles import load_qss
 
 
 from core.image_processor import FlipperImageProcessor
@@ -24,6 +29,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Flipper Asset Studio")
         self.resize(1280, 840)
+
+        # Garanty resize on macOS
+        self.setMinimumSize(800, 600)
         
         # Данные приложения
         self.current_asset_path = None
@@ -38,37 +46,50 @@ class MainWindow(QMainWindow):
 
         # Инициализация UI
         self._setup_ui()
+
+        # Общие стили приложения
+        self.setStyleSheet(load_qss())
+
         self._setup_toolbar()
         self._setup_statusbar()
         self._connect_signals()
 
+
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
+        central.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
         
         # --- Левая панель (Навигация) ---
         self.nav_list = QListWidget()
         self.nav_list.addItems([
-            "️ Single Image",
-            "🎞️ Animation Builder",
-            "📜 Meta Preview",
-            "📷 JPG Crop → PNG",
-            "📱 Icons",
-            "🔍 Validator",
-            "📺 BM/BMX Preview",
+            "Create",
+            "Single Image",
+            "JPG Crop → PNG",
+            "Animation Builder",
+            "Meta Preview",
+            "Icons",
+            "Validator",
+            "BM/BMX Preview",
+
         ])
 
 
 
-        self.nav_list.setFixedWidth(220)
+        self.nav_list.setMinimumWidth(220)
+        # Сигнал подключения будет в _connect_signals(), после создания tabs
         splitter.addWidget(self.nav_list)
 
         # --- Правая панель (Контент) ---
         right = QWidget()
+        right.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -78,7 +99,8 @@ class MainWindow(QMainWindow):
         sl = QVBoxLayout(tab_single)
         
         # Drag-and-Drop область
-        self.drag_drop = DragDropArea("📥 Перетащите PNG или нажмите Import", [".png"])
+        self.drag_drop = DragDropArea("Перетащите PNG или нажмите Import", [".png"])
+
         self.drag_drop.files_dropped.connect(self._on_files_dropped)
         sl.addWidget(self.drag_drop)
         
@@ -86,10 +108,17 @@ class MainWindow(QMainWindow):
         self.preview_label = QLabel()
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumSize(384, 192)
-        self.preview_label.setStyleSheet("QLabel { background: #0a0a0a; border: 2px solid #333; color: #666; font-size: 14px; }")
-        self.preview_label.setText("📥 Импортируйте PNG")
+        self.preview_label.setText("Импортируйте PNG")
+
         self.preview_label.setScaledContents(True)
         self.preview_label.setVisible(False)  # Скрыт по умолчанию
+
+        shadow = QGraphicsDropShadowEffect(self.preview_label)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 3)
+        shadow.setColor(Qt.GlobalColor.black)
+        self.preview_label.setGraphicsEffect(shadow)
+
         sl.addWidget(self.preview_label)
 
         
@@ -100,9 +129,15 @@ class MainWindow(QMainWindow):
         # 2. Вкладка: Animation
         self.anim_preview = QLabel()
         self.anim_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.anim_preview.setFixedHeight(192)
-        self.anim_preview.setStyleSheet("QLabel { background: #0a0a0a; border: 2px solid #333; color: #888; font-size: 14px; }")
+        self.anim_preview.setMinimumHeight(192)
         self.anim_preview.setText("Добавьте кадры для предпросмотра")
+
+        shadow = QGraphicsDropShadowEffect(self.anim_preview)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 3)
+        shadow.setColor(Qt.GlobalColor.black)
+        self.anim_preview.setGraphicsEffect(shadow)
+
         
         self.anim_timeline = AnimationTimelineWidget(self.anim_manager)
         tab_anim = QWidget()
@@ -115,7 +150,6 @@ class MainWindow(QMainWindow):
         ml = QVBoxLayout(tab_meta)
         self.meta_text = QTextEdit()
         self.meta_text.setReadOnly(True)
-        self.meta_text.setStyleSheet("QTextEdit { background: #111; color: #0f0; font-family: 'Consolas', monospace; font-size: 12px; }")
         ml.addWidget(self.meta_text)
         tab_meta.setLayout(ml)
 
@@ -134,13 +168,20 @@ class MainWindow(QMainWindow):
         tab_validator.setLayout(vl)
 
         # 6. Вкладка: BM/BMX Preview
-        self.bm_bmx_preview_drop = DragDropArea("📺 Drop .bm / .bmx to preview", [".bm", ".bmx"])
+        self.bm_bmx_preview_drop = DragDropArea("Drop .bm / .bmx to preview", [".bm", ".bmx"])
+
         self.bm_bmx_preview_label = QLabel()
         self.bm_bmx_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.bm_bmx_preview_label.setMinimumSize(384, 192)
-        self.bm_bmx_preview_label.setStyleSheet("QLabel { background: #0a0a0a; border: 2px solid #333; color: #666; font-size: 14px; }")
-        self.bm_bmx_preview_label.setText("📺 Загружайте .bm / .bmx")
+        self.bm_bmx_preview_label.setMinimumSize(328, 264)
+        self.bm_bmx_preview_label.setText("Загружайте .bm / .bmx")
+
         self.bm_bmx_preview_label.setScaledContents(True)
+
+        shadow = QGraphicsDropShadowEffect(self.bm_bmx_preview_label)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 3)
+        shadow.setColor(Qt.GlobalColor.black)
+        self.bm_bmx_preview_label.setGraphicsEffect(shadow)
 
         tab_bm_bmx = QWidget()
         bml = QVBoxLayout(tab_bm_bmx)
@@ -170,37 +211,75 @@ class MainWindow(QMainWindow):
 
         # Сборка табов
         self.tabs = QTabWidget()
-        self.tabs.addTab(tab_create, "➕ Create")
-        self.tabs.addTab(tab_single, "🖼️ Single")
-        self.tabs.addTab(tab_jpg_crop, "📷 JPG Crop")
 
-        self.tabs.addTab(tab_anim, "🎞️ Animation")
-        self.tabs.addTab(tab_meta, "📜 Meta")
-        self.tabs.addTab(tab_icons, "📱 Icons")
-        self.tabs.addTab(tab_validator, "🔍 Validator")
-        self.tabs.addTab(tab_bm_bmx, "📺 BM/BMX")
+        icons_dir = Path(__file__).resolve().parent.parent / "assets" / "icons"
 
+        tab_defs = [
+            (tab_create, "Create", icons_dir / "create.svg"),
+            (tab_single, "Single", icons_dir / "single.svg"),
+            (tab_jpg_crop, "JPG Crop", icons_dir / "jpg_crop.svg"),
+            (tab_anim, "Animation", icons_dir / "animation.svg"),
+            (tab_meta, "Meta", icons_dir / "meta.svg"),
+            (tab_icons, "Icons", icons_dir / "icons.svg"),
+            (tab_validator, "Validator", icons_dir / "validator.svg"),
+            (tab_bm_bmx, "BM/BMX", icons_dir / "bm_bmx.svg"),
+        ]
+
+        for widget, text, icon_path in tab_defs:
+            tab_index = self.tabs.addTab(widget, text)
+            if icon_path.exists():
+                self.tabs.setTabIcon(tab_index, QIcon(str(icon_path)))
+
+
+
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         right_layout.addWidget(self.tabs)
+        right_layout.setStretch(0, 1)
 
 
         splitter.addWidget(right)
-        splitter.setSizes([220, 1060])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
         layout.addWidget(splitter)
+        layout.setStretch(0, 1)
 
     def _setup_toolbar(self):
         tb = QToolBar("Main")
         tb.setMovable(False)
         tb.setFixedHeight(36)
         self.addToolBar(tb)
-        
-        # Кнопки
-        self.btn_import = QPushButton(" Import PNG")
-        self.btn_import.setFixedWidth(130)
-        
-        self.btn_export = QPushButton("💾 Export Pack")
-        self.btn_export.setFixedWidth(130)
 
-        self.btn_exit = QPushButton("🚪 Exit")
+        icons_dir = Path(__file__).resolve().parent.parent / "assets" / "icons"
+
+        def _icon(name: str) -> QIcon | None:
+            p = icons_dir / name
+            if p.exists():
+                return QIcon(str(p))
+            return None
+
+        # Кнопки (иконки + короткий текст)
+        self.btn_import = QPushButton(" Import")
+        icon = _icon("create.svg") or _icon("single.svg") or _icon("icons.svg")
+        if icon:
+            self.btn_import.setIcon(icon)
+            self.btn_import.setIconSize(QSize(18, 18))
+
+        self.btn_import.setFixedWidth(110)
+
+        self.btn_export = QPushButton(" Export")
+        icon = _icon("animation.svg") or _icon("meta.svg") or _icon("validator.svg")
+        if icon:
+            self.btn_export.setIcon(icon)
+            self.btn_export.setIconSize(QSize(18, 18))
+
+        self.btn_export.setFixedWidth(110)
+
+        self.btn_exit = QPushButton(" Exit")
+        icon = _icon("validator.svg") or _icon("meta.svg") or _icon("icons.svg")
+        if icon:
+            self.btn_exit.setIcon(icon)
+            self.btn_exit.setIconSize(QSize(18, 18))
+
         self.btn_exit.setFixedWidth(90)
 
         tb.addWidget(self.btn_import)
@@ -222,7 +301,7 @@ class MainWindow(QMainWindow):
         self.dither_cb.stateChanged.connect(self._process_single)
 
         
-        # Навигация
+        # Навигация (теперь self.tabs точно существует)
         self.nav_list.currentRowChanged.connect(self.tabs.setCurrentIndex)
         
         # Таймлайн -> Превью и Мета
@@ -249,11 +328,13 @@ class MainWindow(QMainWindow):
             pm, w, h = FlipperBmBmxDecoder.load_frame_as_pixmap(p, scale=3)
             self.bm_bmx_preview_label.setPixmap(pm)
             self.bm_bmx_preview_label.setText("")
-            self.statusBar().showMessage(f"✅ {Path(p).name} | {w}x{h}", 3000)
+            self.statusBar().showMessage(f"OK {Path(p).name} | {w}x{h}", 3000)
+
         except Exception as e:
             self.bm_bmx_preview_label.setPixmap(QPixmap())
-            self.bm_bmx_preview_label.setText(f"❌ {e}")
-            self.statusBar().showMessage(f"❌ {Path(p).name}: {e}", 5000)
+            self.bm_bmx_preview_label.setText(f"Error: {e}")
+            self.statusBar().showMessage(f"Error {Path(p).name}: {e}", 5000)
+
 
     def _import_png(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select PNG", "", "PNG Images (*.png)")
@@ -270,6 +351,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            # single-image: dither_cb переключает “включить/выключить” дизеринг
             dither_level = 1 if self.dither_cb.isChecked() else 0
             d = FlipperImageProcessor.process_png(self.current_asset_path, dither_level=dither_level)
 
@@ -281,13 +363,16 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"❌ Ошибка: {e}", 5000)
 
 
-    def _on_icon_data_ready(self, app_name, paths, w, h, fps):
+    def _on_icon_data_ready(self, app_name, paths, w, h, dither_level):
         """Вызывается, когда во вкладке Icons изменены данные"""
         pass
 
-    def _on_create_icon_data_ready(self, app_name, frame_bytes_list, w, h, fps):
+
+    def _on_create_icon_data_ready(self, app_name, frames_pixels_list, w, h, fps):
         """Вызывается, когда во вкладке Create изменены данные"""
         pass
+
+
 
 
     # --- Логика Анимации ---
@@ -311,7 +396,7 @@ class MainWindow(QMainWindow):
         self.anim_timer.setInterval(1000 // fps)
         self.anim_timer.start()
         
-        self._next_anim_frame()
+        self._next_anim_frame() # Показать первый кадр сразу
 
     def _next_anim_frame(self):
         """Тик таймера"""
@@ -341,9 +426,29 @@ class MainWindow(QMainWindow):
                     item = self.icon_editor.frame_list.findItems(Path(p).name, Qt.MatchFlag.MatchExactly)
                     if item:
                         continue
+                    # Вставляем именно dict с байтами, иначе export получит строку/путь и упадёт/не экспортирует корректно.
+                    dither_level = int(self.icon_editor.dither_cb.currentText().split(" ")[0])
+                    proc = FlipperImageProcessor.process_png(
+                        p,
+                        dither_level=dither_level,
+                        output_w=self.icon_editor.spin_w.value(),
+                        output_h=self.icon_editor.spin_h.value(),
+                    )
+
+
+                    preview_pm = proc["preview"]
+                    frame_bytes = proc["bytes"]
                     from PyQt6.QtWidgets import QListWidgetItem
                     new_item = QListWidgetItem(Path(p).name)
-                    new_item.setData(Qt.ItemDataRole.UserRole, p)
+                    new_item.setData(
+                        Qt.ItemDataRole.UserRole,
+                        {
+                            "path": p,
+                            "bytes": frame_bytes,
+                            "preview": preview_pm,
+                        },
+                    )
+                    new_item.setIcon(QIcon(preview_pm))
                     self.icon_editor.frame_list.addItem(new_item)
                 self.icon_editor._emit_ready()
 
@@ -409,6 +514,10 @@ class MainWindow(QMainWindow):
                 meta_txt = meta
                 manifest_txt = manifest
 
+                # ВАЖНО: экспорт анимации в формате Asset Pack Momentum:
+                # manifest.txt должен быть ТОЛЬКО в папке Anims/ (не в папке конкретной анимации)
+                # Поэтому генерим файл манифеста вручную и после вызова exporter удаляем его из anim_dir.
+
                 FlipperExporter.export_animation(
                     self.anim_manager.get_frame_bytes_list(),
                     meta_txt,
@@ -431,20 +540,37 @@ class MainWindow(QMainWindow):
 
             elif active_tab == self.create_editor.parent():
 
-                frame_bytes_list = self.create_editor.get_frames_bytes_list()
+                frames_pixels_list = self.create_editor.get_frames_pixels_list()
                 w, h, fps = self.create_editor.get_params()
                 app_name = self.create_editor.app_name_edit.text()
 
-                count = len(frame_bytes_list)
-                if count == 0:
+                if not frames_pixels_list:
                     raise ValueError("Нет кадров для экспорта")
 
+                # Экспортируем каждый кадр как отдельный PNG.
+                from PIL import Image
+
                 target_folder = Path(out_dir) / "Icons" / app_name
-                FlipperIconBuilder.export_icon(
-                    frame_bytes_list, w, h, fps,
-                    output_folder=target_folder, compress=True
-                )
-                msg = f"Create: иконка/анимация '{app_name}' экспортирована!"
+                target_folder.mkdir(parents=True, exist_ok=True)
+
+                def pixels_to_png(pixels_2d: list[list[int]], out_path: Path):
+                    # 0 = black, 1 = white (по текущей логике canvas)
+                    img = Image.new("L", (w, h), 0)
+                    # создаём байтовый буфер 0/255 построчно
+                    row_bytes = []
+                    for yy in range(h):
+                        row = [255 if int(pixels_2d[yy][xx]) else 0 for xx in range(w)]
+                        row_bytes.extend(row)
+                    img.putdata(row_bytes)
+                    img.save(out_path, format="PNG")
+
+                for i, frame_pixels in enumerate(frames_pixels_list):
+                    out_path = target_folder / f"Frame_{i:03d}.png"
+                    pixels_to_png(frame_pixels, out_path)
+
+                msg = f"Create: экспортировано {len(frames_pixels_list)} PNG кадр(ов) в: {target_folder}" 
+
+
 
             elif active_tab == self.icon_editor.parent():
 
@@ -454,27 +580,68 @@ class MainWindow(QMainWindow):
                 if count == 0:
                     raise ValueError("Нет кадров иконки")
                 
-                paths = [self.icon_editor.frame_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(count)]
+                # UserRole хранит dict {path, bytes, preview}
+                items = [self.icon_editor.frame_list.item(i) for i in range(count)]
+                paths = []
+                for it in items:
+                    data = it.data(Qt.ItemDataRole.UserRole)
+                    if isinstance(data, dict) and data.get("path"):
+                        paths.append(data["path"])
+                    else:
+                        raise TypeError("Icons export: expected dict with 'path' in UserRole")
+
                 w = self.icon_editor.spin_w.value()
                 h = self.icon_editor.spin_h.value()
-                fps = self.icon_editor.spin_fps.value()
-                app_name = self.icon_editor.app_name_edit.text()
+                # В Icons FPS не используется
 
-                # Конвертируем PNG в байты Flipper
+                # app_name здесь используется как passport-kind (passport / passport_bad / ...)
+                base_app = (self.icon_editor.app_name_edit.text() or "").strip().lower()
+                dither_level = int(self.icon_editor.dither_cb.currentText().split(" ")[0])
+
+                # Конвертируем PNG в байты Flipper с выбранным dither
                 frame_bytes_list = []
                 for p in paths:
-                    proc = FlipperImageProcessor.process_png(p, dither=True)
+                    proc = FlipperImageProcessor.process_png(
+                        p,
+                        dither_level=dither_level,
+                        output_w=w,
+                        output_h=h,
+                    )
                     frame_bytes_list.append(proc["bytes"])
 
 
-                target_folder = Path(out_dir) / "Icons" / app_name
-                (Path(out_dir) / "Anims").mkdir(parents=True, exist_ok=True)
-                FlipperIconBuilder.export_icon(
+                # basename для passport (строго из ТЗ, без App Name в имени файла)
+                file_basename = None
+                if base_app == "passport":
+                    file_basename = "passport_128x64"
+                elif base_app in {"passport_bad", "passport_happy", "passport_okay"}:
+                    file_basename = f"{base_app}_46x49"
+                else:
+                    # На случай если UI будет в другом состоянии
+                    file_basename = "icon"
 
-                    frame_bytes_list, w, h, fps, 
-                    output_folder=target_folder, compress=True
+                # По ТЗ: создаём ровно: out_dir/Icons/Passport/<file>
+                # self.icon_editor.app_name_edit — паспорт-категория, но она участвует только в имени файла.
+                target_folder = Path(out_dir) / "Passport"
+
+                # У passport-иконок нет анимации, поэтому FPS/кадровая логика не нужна
+                
+                FlipperIconBuilder.export_icon(
+                    frame_bytes_list,
+                    w,
+                    h,
+                    1,
+                    output_folder=target_folder,
+                    compress=True,
+                    file_basename=file_basename,
+                    frames_paths=paths,
+                    dither_level=dither_level,
                 )
-                msg = f"Иконка для '{app_name}' экспортирована!"
+
+
+                msg = f"Иконка экспортирована: {file_basename}.bmx" 
+
+
             
             else:
                 msg = "Выберите вкладку с контентом для экспорта"
@@ -484,3 +651,5 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
+
+

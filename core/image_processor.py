@@ -21,6 +21,8 @@ class FlipperImageProcessor:
     # Включено для устранения «строчных/побитовых» артефактов на предпросмотре.
     REVERSE_BITS_WITHIN_BYTE = False
 
+
+
     WIDTH = 128
 
     HEIGHT = 64
@@ -41,23 +43,37 @@ class FlipperImageProcessor:
             raise RuntimeError(f"Ошибка чтения изображения: {e}") from e
 
     @classmethod
-    def preprocess(cls, img: Image.Image, dither_level: int = 1) -> Image.Image:
-        """Центрирование, ресайз/кроп и конвертация в 1-бит под 128x64.
+    def preprocess(
+        cls,
+        img: Image.Image,
+        dither_level: int = 1,
+        *,
+        output_w: int | None = None,
+        output_h: int | None = None,
+    ) -> Image.Image:
+        """Центрирование, ресайз/кроп и конвертация в 1-бит под output_w x output_h.
 
         dither_level:
-
           0 = без дизеринга
           1 = Floyd-Steinberg
           2/3 = сейчас (в зависимости от Pillow) трактуются как Floyd-Steinberg,
               чтобы обеспечить наличие “уровня” в UI. Алгоритмы/силу можно расширить позже.
         """
 
-        img.thumbnail((cls.WIDTH, cls.HEIGHT), Image.Resampling.LANCZOS)
 
-        canvas = Image.new("L", (cls.WIDTH, cls.HEIGHT), 0)
-        offset_x = (cls.WIDTH - img.width) // 2
-        offset_y = (cls.HEIGHT - img.height) // 2
-        canvas.paste(img, (offset_x, offset_y))
+        w = cls.WIDTH if output_w is None else int(output_w)
+        h = cls.HEIGHT if output_h is None else int(output_h)
+
+        img = img.convert("RGBA")
+        img.thumbnail((w, h), Image.Resampling.LANCZOS)
+
+        canvas = Image.new("L", (w, h), 0)
+        img_l = img.convert("L")
+        offset_x = (w - img_l.width) // 2
+        offset_y = (h - img_l.height) // 2
+        canvas.paste(img_l, (offset_x, offset_y))
+
+
 
         dither_level = int(dither_level)
         if dither_level <= 0:
@@ -70,14 +86,24 @@ class FlipperImageProcessor:
         return canvas.convert("1", dither=mode)
 
     @classmethod
-    def pack_to_flipper_bytes(cls, img_1bit: Image.Image) -> bytes:
-        """Упаковка 1-бит изображения в bytes Flipper (MSB-first, white=1)."""
+    def pack_to_flipper_bytes(
+        cls,
+        img_1bit: Image.Image,
+        *,
+        output_w: int | None = None,
+        output_h: int | None = None,
+    ) -> bytes:
+        """Упаковка 1-бит изображения в bytes Flipper (MSB-first, white=1) под output_w x output_h."""
+        w = cls.WIDTH if output_w is None else int(output_w)
+        h = cls.HEIGHT if output_h is None else int(output_h)
+
         arr = np.array(img_1bit, dtype=np.uint8)
         arr = (arr > 0).astype(np.uint8)  # 0/1, white=1
 
-        arr2 = arr.reshape(cls.HEIGHT, cls.WIDTH)
+        arr2 = arr.reshape(h, w)
         packed = np.packbits(arr2, axis=1, bitorder="big")
         return packed.tobytes()
+
 
     @classmethod
     def pack_to_xbm_bytes(cls, img_1bit: Image.Image) -> bytes:
@@ -127,12 +153,14 @@ class FlipperImageProcessor:
 
         expected_bits = h * w
 
+        # Не всегда декодер может получить ровно expected_bits (встречаются несовпадения формата/паддинга).
+        # Обрезаем/дополняем до expected_bits.
         if bits.size < expected_bits:
-            raise ValueError(
-                f"Invalid data length for preview: need {expected_bits} bits, got {bits.size} bits"
-            )
+            pad = expected_bits - bits.size
+            bits = np.concatenate([bits, np.zeros(pad, dtype=bits.dtype)])
 
         bits = bits[:expected_bits].reshape(h, w)
+
 
         img_bytes = (bits * 255).astype(np.uint8).tobytes()
         qimg = QImage(img_bytes, w, h, QImage.Format.Format_Grayscale8)
@@ -204,20 +232,40 @@ class FlipperImageProcessor:
         }
 
     @classmethod
-    def process_png(cls, path: str, dither_level: int = 1) -> Dict[str, Any]:
+    def process_png(
+        cls,
+        path: str,
+        dither_level: int = 1,
+        *,
+        output_w: int | None = None,
+        output_h: int | None = None,
+    ) -> Dict[str, Any]:
         img = cls.load_and_validate(path)
-        img_1bit = cls.preprocess(img, dither_level=dither_level)
+        img_1bit = cls.preprocess(
+            img,
+            dither_level=dither_level,
+            output_w=output_w,
+            output_h=output_h,
+        )
 
-        raw_bytes = cls.pack_to_flipper_bytes(img_1bit)
-        preview = cls.bytes_to_preview(raw_bytes, width=cls.WIDTH, height=cls.HEIGHT)
+        raw_bytes = cls.pack_to_flipper_bytes(
+            img_1bit,
+            output_w=output_w,
+            output_h=output_h,
+        )
+
+        w = cls.WIDTH if output_w is None else int(output_w)
+        h = cls.HEIGHT if output_h is None else int(output_h)
+        preview = cls.bytes_to_preview(raw_bytes, width=w, height=h)
         return {
             "original_size": img.size,
-            "processed_size": (cls.WIDTH, cls.HEIGHT),
+            "processed_size": (w, h),
             "byte_length": len(raw_bytes),
             "bytes": raw_bytes,
             "preview": preview,
             "dither_level": int(dither_level),
         }
+
 
 
     # ---------------- JPG crop/export ----------------

@@ -121,6 +121,10 @@ class FlipperBmBmxDecoder:
         # Это даёт характерный эффект «разрезания по вертикали».
         bits = bits.reshape(-1, 8)[:, ::-1].reshape(-1)
 
+
+
+
+
         preview_bytes = np.packbits(bits, bitorder="big").tobytes()
         return preview_bytes[:expected]
 
@@ -253,16 +257,59 @@ class FlipperBmBmxDecoder:
             bm_data = data[8:]
 
             try:
-                _, xbm_bytes = cls._decode_bm_bytes_to_xbm(bm_data, path=path)
+                # Momentum/exporter форматирует convert_bm_output как .bm контент.
+                # Но у некоторых паков встречается лишний padd/смещение.
+                # Попробуем распознать по структуре .bm:
+                #   [flag][padd?][len_lo][len_hi][compressed...]  (flag==0x01)
+                #   [flag][raw_xbm...]                           (flag==0x00)
+                #
+                # В .bmx у нас всегда начинается с флага.
+
+                if len(bm_data) < 1:
+                    raise BM_BMX_DecodeError(f"Empty bm payload in .bmx: {path}")
+
+                # Формат convert_bm:
+                #   [flag]
+                #   если flag==0x01: [padd][len_lo][len_hi][compressed_data]
+                #   если flag==0x00: [raw_xbm_bytes]
 
                 expected = cls._expected_packed_bytes(width, height)
-                if len(xbm_bytes) >= expected:
-                    xbm_bytes = xbm_bytes[:expected]
-                elif len(xbm_bytes) < expected:
-                    xbm_bytes = xbm_bytes + b"\x00" * (expected - len(xbm_bytes))
 
-                preview_bytes = cls._xbm_to_preview_bytes(xbm_bytes, width, height)
-                return int(width), int(height), preview_bytes
+                # Поскольку длина распакованного XBM у разных паков может немного отличаться,
+                # будем использовать не "строгое" совпадение, а наиболее близкий вариант.
+
+                candidates: list[bytes] = [bm_data]
+                if len(bm_data) >= 2:
+                    candidates.append(bm_data[1:])
+
+                last_err: Exception | None = None
+                for cand in candidates:
+
+                    try:
+                        _, xbm_bytes = cls._decode_bm_bytes_to_xbm(cand, path=path)
+
+                        if len(xbm_bytes) >= expected:
+                            preview_bytes = cls._xbm_to_preview_bytes(xbm_bytes, width, height)
+                            return int(width), int(height), preview_bytes
+
+                    except Exception as e:
+                        last_err = e
+                        continue
+
+                raise BM_BMX_DecodeError(
+                    f"Unexpected XBM payload size in .bmx for {width}x{height}. "
+                    f"Expected at least {expected}. Candidates tried: {len(candidates)}. "
+                    f"Last error: {last_err} ({path})"
+                )
+
+
+            except Exception as e:
+                raise BM_BMX_DecodeError(
+                    f"Failed to decode .bm payload in .bmx ({path}): {e}"
+                ) from e
+
+
+
             except Exception as e:
                 raise BM_BMX_DecodeError(
                     f"Failed to decode .bm payload in .bmx ({path}): {e}"

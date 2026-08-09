@@ -28,11 +28,53 @@ class IconEditorWidget(QWidget):
     # app_name, frames_bytes, w, h, dither_level
     icon_ready = pyqtSignal(str, list, int, int, int)
 
-
     def __init__(self):
         super().__init__()
         self.frames = []
         self._setup_ui()
+
+    def _on_dither_changed(self):
+        """При переключении дизеринга пересчитываем bytes/preview для всех загруженных кадров."""
+        w = int(self.spin_w.value())
+        h = int(self.spin_h.value())
+        dither_level = int(self.dither_cb.currentText().split(" ")[0])
+
+        count = self.frame_list.count()
+        for i in range(count):
+            item = self.frame_list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if not isinstance(data, dict):
+                continue
+            p = data.get("path")
+            if not p:
+                continue
+
+            proc = FlipperImageProcessor.process_png(
+                p,
+                dither_level=dither_level,
+                output_w=w,
+                output_h=h,
+            )
+            
+            # Защита: процесс_png возвращает bytes, сформированные из img.convert("1", dither=...)
+            # Если вдруг PIL вернёт одинаковый результат, это всё равно будет соответствовать выбранному dither_level.
+
+
+            preview_pm = proc["preview"]
+            frame_bytes = proc["bytes"]
+
+            item.setData(
+                Qt.ItemDataRole.UserRole,
+                {
+                    "path": p,
+                    "bytes": frame_bytes,
+                    "preview": preview_pm,
+                },
+            )
+            item.setIcon(QIcon(preview_pm))
+
+        self._emit_ready()
+
 
 
     def _setup_ui(self):
@@ -55,21 +97,21 @@ class IconEditorWidget(QWidget):
         self.spin_w = QSpinBox()
         self.spin_w.setRange(1, 128)
         self.spin_w.setValue(128)
-        self.spin_w.setEnabled(False)
+        self.spin_w.setEnabled(True)
 
         self.spin_h = QSpinBox()
         self.spin_h.setRange(1, 128)
         self.spin_h.setValue(64)
-        self.spin_h.setEnabled(False)
+        self.spin_h.setEnabled(True)
 
         self.dither_cb = QComboBox()
-        self.dither_cb.addItems(["0 (без дизеринга)", "1 (Floyd-Steinberg)"])
-        self.dither_cb.setCurrentIndex(1)
+        self.dither_cb.addItems(["0", "1"])
+        self.dither_cb.setCurrentIndex(0)
 
         settings_layout.addRow("App Name:", self.app_name_edit)
         settings_layout.addRow("Passport file:", self.passport_kind_cb)
-        settings_layout.addRow("Width:", self.spin_w)
-        settings_layout.addRow("Height:", self.spin_h)
+        #settings_layout.addRow("Width:", self.spin_w)
+        #settings_layout.addRow("Height:", self.spin_h)
         settings_layout.addRow("Dither level:", self.dither_cb)
         settings_group.setLayout(settings_layout)
         layout.addWidget(settings_group)
@@ -78,7 +120,7 @@ class IconEditorWidget(QWidget):
 
         # Список кадров
         self.frame_list = QListWidget()
-        self.frame_list.setIconSize(QSize(96, 96))
+        self.frame_list.setIconSize(QSize(250, 250))
 
         self.frame_list.setViewMode(QListWidget.ViewMode.IconMode)
         self.frame_list.setFlow(QListWidget.Flow.LeftToRight)
@@ -116,7 +158,10 @@ class IconEditorWidget(QWidget):
 
         self.app_name_edit.textChanged.connect(self._apply_passport_preset)
         self.passport_kind_cb.currentTextChanged.connect(self._apply_passport_kind_preset)
-        self.dither_cb.currentTextChanged.connect(self._emit_ready)
+        self.dither_cb.currentTextChanged.connect(self._on_dither_changed)
+
+
+
 
 
         self._apply_passport_preset()
@@ -126,6 +171,9 @@ class IconEditorWidget(QWidget):
     def _add_frames(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Add Icon Frames", "", "PNG (*.png)")
         dither_level = int(self.dither_cb.currentText().split(" ")[0])
+        w = int(self.spin_w.value())
+        h = int(self.spin_h.value())
+
 
         for p in sorted(paths):
             filename = Path(p).name
