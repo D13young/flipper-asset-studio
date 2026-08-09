@@ -360,11 +360,11 @@ class CreateEditorWidget(QWidget):
         settings_group = QGroupBox("⚙️ Settings")
         settings_layout = QFormLayout()
 
-        self.app_name_edit = QLineEdit("SubGhz")
+        self.name_png_edit = QLineEdit("icon")
         self.spin_w = QSpinBox(); self.spin_w.setRange(1, 128); self.spin_w.setValue(128)
         self.spin_h = QSpinBox(); self.spin_h.setRange(1, 128); self.spin_h.setValue(64)
 
-        settings_layout.addRow("App Name:", self.app_name_edit)
+        settings_layout.addRow("Name PNG:", self.name_png_edit)
         settings_layout.addRow("Width (px):", self.spin_w)
         settings_layout.addRow("Height (px):", self.spin_h)
         settings_group.setLayout(settings_layout)
@@ -382,6 +382,7 @@ class CreateEditorWidget(QWidget):
 
         self.frame_list = QListWidget()
         self.frame_list.setViewMode(QListWidget.ViewMode.ListMode)
+        self.frame_list.setMaximumHeight(90)
         frames_layout.addWidget(self.frame_list)
 
         btn_layout = QHBoxLayout()
@@ -427,7 +428,7 @@ class CreateEditorWidget(QWidget):
         self.btn_next.clicked.connect(lambda: self._change_active(1))
         self.btn_clear.clicked.connect(self._clear_active_frame)
 
-        self.app_name_edit.textChanged.connect(self._emit_ready)
+        self.name_png_edit.textChanged.connect(self._emit_ready)
         self.frame_list.currentRowChanged.connect(self._on_list_selection)
 
         self.spin_w.valueChanged.connect(self._on_canvas_size_changed)
@@ -603,7 +604,7 @@ class CreateEditorWidget(QWidget):
         if not self.frames_pixels:
             return
 
-        app_name = self.app_name_edit.text()
+        app_name = self.name_png_edit.text()
         # fps=1 (UI FPS/Preview убраны по ТЗ, но main_window ожидает fps)
         fps = 1
         w = int(self.canvas.width_px)

@@ -542,16 +542,15 @@ class MainWindow(QMainWindow):
 
                 frames_pixels_list = self.create_editor.get_frames_pixels_list()
                 w, h, fps = self.create_editor.get_params()
-                app_name = self.create_editor.app_name_edit.text()
+                name_png = self.create_editor.name_png_edit.text().strip() or "icon"
 
                 if not frames_pixels_list:
                     raise ValueError("Нет кадров для экспорта")
 
-                # Экспортируем каждый кадр как отдельный PNG.
+                # Экспортируем каждый кадр как отдельный PNG прямо в выбранную папку.
                 from PIL import Image
 
-                target_folder = Path(out_dir) / "Icons" / app_name
-                target_folder.mkdir(parents=True, exist_ok=True)
+                target_folder = Path(out_dir)
 
                 def pixels_to_png(pixels_2d: list[list[int]], out_path: Path):
                     # 0 = black, 1 = white (по текущей логике canvas)
@@ -564,9 +563,13 @@ class MainWindow(QMainWindow):
                     img.putdata(row_bytes)
                     img.save(out_path, format="PNG")
 
-                for i, frame_pixels in enumerate(frames_pixels_list):
-                    out_path = target_folder / f"Frame_{i:03d}.png"
-                    pixels_to_png(frame_pixels, out_path)
+                if len(frames_pixels_list) == 1:
+                    out_path = target_folder / f"{name_png}.png"
+                    pixels_to_png(frames_pixels_list[0], out_path)
+                else:
+                    for i, frame_pixels in enumerate(frames_pixels_list):
+                        out_path = target_folder / f"{name_png}_{i:03d}.png"
+                        pixels_to_png(frame_pixels, out_path)
 
                 msg = f"Create: экспортировано {len(frames_pixels_list)} PNG кадр(ов) в: {target_folder}" 
 
