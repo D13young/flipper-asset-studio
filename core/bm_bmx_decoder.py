@@ -259,7 +259,7 @@ class FlipperBmBmxDecoder:
             try:
                 # Momentum/exporter форматирует convert_bm_output как .bm контент.
                 # Но у некоторых паков встречается лишний padd/смещение.
-                # Попробуем распознать по структуре .bm:
+                # пробуем распознать по структуре .bm:
                 #   [flag][padd?][len_lo][len_hi][compressed...]  (flag==0x01)
                 #   [flag][raw_xbm...]                           (flag==0x00)
                 #

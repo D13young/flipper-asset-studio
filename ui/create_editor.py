@@ -19,10 +19,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
 )
 
-# В этом редакторе:
-# - убраны FPS UI и превью
-# - но оставлена совместимость с ui/main_window.py по сигнатуре/параметрам: fps=1 по умолчанию.
-
+from ui.i18n import tr, trf
 
 class PixelCanvas(QWidget):
     pixel_changed = pyqtSignal(int, int, int)
@@ -357,28 +354,28 @@ class CreateEditorWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        settings_group = QGroupBox("⚙️ Settings")
-        settings_layout = QFormLayout()
+        self.settings_group = QGroupBox(tr("create.group_settings"))
+        self.settings_layout = QFormLayout()
 
         self.name_png_edit = QLineEdit("icon")
         self.spin_w = QSpinBox(); self.spin_w.setRange(1, 128); self.spin_w.setValue(128)
         self.spin_h = QSpinBox(); self.spin_h.setRange(1, 128); self.spin_h.setValue(64)
 
-        settings_layout.addRow("Name PNG:", self.name_png_edit)
-        settings_layout.addRow("Width (px):", self.spin_w)
-        settings_layout.addRow("Height (px):", self.spin_h)
-        settings_group.setLayout(settings_layout)
-        layout.addWidget(settings_group)
+        self.settings_layout.addRow(tr("create.lbl_name_png"), self.name_png_edit)
+        self.settings_layout.addRow(tr("create.lbl_width"), self.spin_w)
+        self.settings_layout.addRow(tr("create.lbl_height"), self.spin_h)
+        self.settings_group.setLayout(self.settings_layout)
+        layout.addWidget(self.settings_group)
 
-        canvas_group = QGroupBox("🖼️ Canvas")
-        canvas_layout = QVBoxLayout(canvas_group)
+        self.canvas_group = QGroupBox(tr("create.group_canvas"))
+        canvas_layout = QVBoxLayout(self.canvas_group)
 
         self.canvas = PixelCanvas(128, 64, cell=4)
         canvas_layout.addWidget(self.canvas)
-        layout.addWidget(canvas_group)
+        layout.addWidget(self.canvas_group)
 
-        frames_group = QGroupBox("Frames")
-        frames_layout = QVBoxLayout(frames_group)
+        self.frames_group = QGroupBox(tr("create.group_frames"))
+        frames_layout = QVBoxLayout(self.frames_group)
 
         self.frame_list = QListWidget()
         self.frame_list.setViewMode(QListWidget.ViewMode.ListMode)
@@ -386,11 +383,11 @@ class CreateEditorWidget(QWidget):
         frames_layout.addWidget(self.frame_list)
 
         btn_layout = QHBoxLayout()
-        self.btn_add_frame = QPushButton("➕ Add Frame")
-        self.btn_remove_frame = QPushButton("❌ Remove")
-        self.btn_prev = QPushButton("⬅️ Prev")
-        self.btn_next = QPushButton("Next ➡️")
-        self.btn_clear = QPushButton("🧼 Clear")
+        self.btn_add_frame = QPushButton(tr("create.btn_add_frame"))
+        self.btn_remove_frame = QPushButton(tr("create.btn_remove_frame"))
+        self.btn_prev = QPushButton(tr("create.btn_prev"))
+        self.btn_next = QPushButton(tr("create.btn_next"))
+        self.btn_clear = QPushButton(tr("create.btn_clear"))
 
         btn_layout.addWidget(self.btn_add_frame)
         btn_layout.addWidget(self.btn_remove_frame)
@@ -401,7 +398,7 @@ class CreateEditorWidget(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setChildrenCollapsible(False)
-        splitter.addWidget(frames_group)
+        splitter.addWidget(self.frames_group)
 
         self.frame_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         splitter.setStretchFactor(0, 1)
@@ -412,10 +409,27 @@ class CreateEditorWidget(QWidget):
         layout.setStretch(2, 1)
         layout.setStretch(3, 0)
 
-        self.lbl_status = QLabel("Кадры: 1 | Активный: 0")
+        self.lbl_status = QLabel(trf("create.status", count=1, active=0))
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_status.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.lbl_status)
+
+    def retranslate(self):
+        """Обновляет тексты при смене языка."""
+        self.settings_group.setTitle(tr("create.group_settings"))
+        self.settings_layout.labelForField(self.name_png_edit).setText(tr("create.lbl_name_png"))
+        self.settings_layout.labelForField(self.spin_w).setText(tr("create.lbl_width"))
+        self.settings_layout.labelForField(self.spin_h).setText(tr("create.lbl_height"))
+        self.canvas_group.setTitle(tr("create.group_canvas"))
+        self.frames_group.setTitle(tr("create.group_frames"))
+        self.btn_add_frame.setText(tr("create.btn_add_frame"))
+        self.btn_remove_frame.setText(tr("create.btn_remove_frame"))
+        self.btn_prev.setText(tr("create.btn_prev"))
+        self.btn_next.setText(tr("create.btn_next"))
+        self.btn_clear.setText(tr("create.btn_clear"))
+        self._update_status()
+        for i in range(self.frame_list.count()):
+            self.frame_list.item(i).setText(trf("create.frame_item", index=i))
 
     def _connect_signals(self):
         self.canvas.pixel_changed.connect(self._on_canvas_pixel_changed)
@@ -508,7 +522,7 @@ class CreateEditorWidget(QWidget):
     def _refresh_frame_list(self):
         self.frame_list.clear()
         for i in range(len(self.frames_pixels)):
-            item = QListWidgetItem(f"Frame {i}")
+            item = QListWidgetItem(trf("create.frame_item", index=i))
             self.frame_list.addItem(item)
         if self.frames_pixels:
             self.frame_list.setCurrentRow(self.active_index)
@@ -518,7 +532,7 @@ class CreateEditorWidget(QWidget):
         self._update_status()
 
     def _update_status(self):
-        self.lbl_status.setText(f"Кадры: {len(self.frames_pixels)} | Активный: {self.active_index}")
+        self.lbl_status.setText(trf("create.status", count=len(self.frames_pixels), active=self.active_index))
 
     def _on_canvas_pixel_changed(self, x: int, y: int, v: int):
         self.frames_pixels[self.active_index][y][x] = 1 if v else 0

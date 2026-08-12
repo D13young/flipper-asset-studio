@@ -148,6 +148,7 @@ flipper_asset_studio/
 │   ├── main_window.py         # Главное окно
 │   ├── animation_timeline.py  # Таймлайн/управление кадрами
 │   ├── icon_editor.py         # Редактор иконок
+│   ├── gif_crop_editor.py     # GIF → PNG (кадрирование анимации)
 │   ├── jpg_crop_editor.py     # Редактор кадрирования (jpg)
 │   ├── validator_widget.py    # Виджет результатов валидации
 │   ├── drag_drop_widget.py    # Drag-and-Drop обработка

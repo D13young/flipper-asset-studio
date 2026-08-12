@@ -16,19 +16,27 @@ from PyQt6.QtWidgets import (
 )
 
 from core.image_processor import FlipperImageProcessor
+from ui.drag_drop_widget import DragDropArea
+from ui.i18n import tr, trf
 
 
-class _CropPreviewWidget(QWidget):
+class CropPreviewWidget(QWidget):
     """Превью изображения + перетаскиваемая/растягиваемая рамка crop.
     """
 
     HANDLE_SIZE_PX = 8
 
-    def __init__(self, *, parent: QWidget | None = None):
+    def __init__(
+        self,
+        *,
+        parent: QWidget | None = None,
+        empty_hint: str = "Загрузите JPG для превью",
+    ):
         super().__init__(parent)
 
         self._img_path: str | None = None
         self._img_pixmap: QPixmap | None = None
+        self._empty_hint = empty_hint
 
         self._output_w: int = 128
         self._output_h: int = 64
@@ -61,7 +69,17 @@ class _CropPreviewWidget(QWidget):
         if self._img_pixmap.isNull():
             self._img_pixmap = None
             return
-        self._reset_crop_to_center()
+        self.set_pixmap(self._img_pixmap, reset_crop=True)
+
+    def set_pixmap(self, pm: QPixmap, *, reset_crop: bool = False):
+        """Установить превью-изображение.
+
+        reset_crop=False — рамка crop сохраняется (полезно при переключении
+        кадров анимации в превью).
+        """
+        self._img_pixmap = pm if not pm.isNull() else None
+        if self._img_pixmap and reset_crop:
+            self._reset_crop_to_center()
         self.update()
 
     def _reset_crop_to_center(self):
@@ -164,7 +182,7 @@ class _CropPreviewWidget(QWidget):
 
         if not self._img_pixmap:
             painter.setPen(QPen(QColor(120, 120, 120)))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Загрузите JPG для превью")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._empty_hint)
             return
 
         # aspect-fit draw
@@ -372,11 +390,18 @@ class JpegCropEditorWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        controls_group = QGroupBox("📷 JPG → PNG crop")
-        controls_layout = QFormLayout(controls_group)
+        # Drag-and-Drop область
+        self.drop_area = DragDropArea(
+            tr("jpg.drag_title"),
+            [".jpg", ".jpeg", ".png"],
+        )
+        layout.addWidget(self.drop_area)
 
-        self.btn_load = QPushButton("Загрузить JPG")
-        self.lbl_loaded = QLabel("Файл не выбран")
+        self.controls_group = QGroupBox(tr("jpg.group_controls"))
+        self.controls_layout = QFormLayout(self.controls_group)
+
+        self.btn_load = QPushButton(tr("jpg.btn_load"))
+        self.lbl_loaded = QLabel(tr("jpg.loaded_default"))
         self.lbl_loaded.setWordWrap(True)
 
         self.size_combo = QComboBox()
@@ -384,31 +409,49 @@ class JpegCropEditorWidget(QWidget):
         for w, h in fixed_sizes_sorted:
             self.size_combo.addItem(f"{w}x{h}", userData=(w, h))
 
-        self.btn_export = QPushButton("Экспортировать PNG")
+        self.btn_export = QPushButton(tr("jpg.btn_export"))
 
-        controls_layout.addRow("Input:", self.btn_load)
-        controls_layout.addRow("Loaded:", self.lbl_loaded)
-        controls_layout.addRow("Output size:", self.size_combo)
-        controls_layout.addRow("", self.btn_export)
+        self.controls_layout.addRow(tr("jpg.lbl_input"), self.btn_load)
+        self.controls_layout.addRow(tr("jpg.lbl_loaded"), self.lbl_loaded)
+        self.controls_layout.addRow(tr("jpg.lbl_output_size"), self.size_combo)
+        self.controls_layout.addRow("", self.btn_export)
 
-        layout.addWidget(controls_group)
+        layout.addWidget(self.controls_group)
 
 
-        preview_group = QGroupBox("Preview (drag рамка)")
-        preview_layout = QVBoxLayout(preview_group)
+        self.preview_group = QGroupBox(tr("jpg.group_preview"))
+        preview_layout = QVBoxLayout(self.preview_group)
 
-        self.preview_widget = _CropPreviewWidget()
+        self.preview_widget = CropPreviewWidget(empty_hint=tr("jpg.preview_hint"))
         preview_layout.addWidget(self.preview_widget)
 
-        self.lbl_hint = QLabel("Рамка соответствует выбранному output соотношению сторон. Можно двигать/тянуть за углы.")
+        self.lbl_hint = QLabel(tr("jpg.lbl_hint"))
         self.lbl_hint.setWordWrap(True)
-        layout.addWidget(preview_group)
+        layout.addWidget(self.preview_group)
         preview_layout.addWidget(self.lbl_hint)
+
+    def retranslate(self):
+        """Обновляет тексты при смене языка."""
+        self.drop_area.set_text(tr("jpg.drag_title"))
+        self.controls_group.setTitle(tr("jpg.group_controls"))
+        self.btn_load.setText(tr("jpg.btn_load"))
+        self.btn_export.setText(tr("jpg.btn_export"))
+        self.controls_layout.labelForField(self.btn_load).setText(tr("jpg.lbl_input"))
+        self.controls_layout.labelForField(self.lbl_loaded).setText(tr("jpg.lbl_loaded"))
+        self.controls_layout.labelForField(self.size_combo).setText(tr("jpg.lbl_output_size"))
+        self.preview_group.setTitle(tr("jpg.group_preview"))
+        self.lbl_hint.setText(tr("jpg.lbl_hint"))
+        # Поле "Загружено": сбрасываем к локализованному значению, если файл не загружен
+        if not self._input_path:
+            self.lbl_loaded.setText(tr("jpg.loaded_default"))
+        elif self.preview_widget._img_pixmap is None:
+            self.lbl_loaded.setText(tr("jpg.loaded_error"))
 
     def _connect_signals(self):
         self.btn_load.clicked.connect(self._on_load)
         self.btn_export.clicked.connect(self._on_export)
         self.size_combo.currentIndexChanged.connect(self._on_out_size_changed)
+        self.drop_area.files_dropped.connect(self._on_drop)
 
 
 
@@ -432,13 +475,21 @@ class JpegCropEditorWidget(QWidget):
     def _on_load(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select JPG",
+            tr("jpg.select_jpg"),
             "",
             "Images (*.jpg *.jpeg *.png)",
         )
         if not path:
             return
 
+        self._load_image(path)
+
+    def _on_drop(self, paths: list):
+        if not paths:
+            return
+        self._load_image(paths[0])
+
+    def _load_image(self, path: str):
         self._input_path = path
         self.lbl_loaded.setText(Path(path).name)
 
@@ -446,13 +497,18 @@ class JpegCropEditorWidget(QWidget):
         self.preview_widget.set_output_size(out_w, out_h)
         self.preview_widget.set_image(path)
 
+        # Если файл не читается — сбрасываем состояние
+        if self.preview_widget._img_pixmap is None:
+            self._input_path = None
+            self.lbl_loaded.setText(tr("jpg.loaded_error"))
+
         self._refresh_ui()
 
     def _on_export(self):
         if not self._input_path:
             return
 
-        out_dir = QFileDialog.getExistingDirectory(self, "Выберите папку для PNG")
+        out_dir = QFileDialog.getExistingDirectory(self, tr("jpg.export_dir"))
         if not out_dir:
             return
 
@@ -481,6 +537,7 @@ class JpegCropEditorWidget(QWidget):
 
 
 # --- Backward compatibility: if old preview exists ---
+_CropPreviewWidget = CropPreviewWidget
 
-__all__ = ["JpegCropEditorWidget"]
+__all__ = ["JpegCropEditorWidget", "CropPreviewWidget", "_CropPreviewWidget"]
 

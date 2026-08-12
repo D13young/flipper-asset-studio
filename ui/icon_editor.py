@@ -22,6 +22,7 @@ from pathlib import Path
 
 from core.image_processor import FlipperImageProcessor
 from ui.drag_drop_widget import DragDropArea
+from ui.i18n import tr
 
 
 class IconEditorWidget(QWidget):
@@ -77,9 +78,9 @@ class IconEditorWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         # Настройки иконки
-        settings_group = QGroupBox("Settings")
+        self.settings_group = QGroupBox(tr("icon.group_settings"))
 
-        settings_layout = QFormLayout()
+        self.settings_layout = QFormLayout()
 
         self.app_name_edit = QLineEdit("passport")
         self.app_name_edit.setEnabled(False)
@@ -87,7 +88,7 @@ class IconEditorWidget(QWidget):
         self.passport_kind_cb = QComboBox()
         self.passport_kind_cb.addItems(["passport_128x64", "passport_bad_46x49", "passport_happy_46x49", "passport_okay_46x49"])
         self.passport_kind_cb.setCurrentText("passport_128x64")
-        self.app_name_edit.setToolTip("Название папки приложения (например: RFID, NFC, SubGhz)")
+        self.app_name_edit.setToolTip(tr("icon.tip_app_name"))
 
         self.spin_w = QSpinBox()
         self.spin_w.setRange(1, 128)
@@ -103,14 +104,14 @@ class IconEditorWidget(QWidget):
         self.dither_cb.addItems(["0", "1"])
         self.dither_cb.setCurrentIndex(0)
 
-        settings_layout.addRow("App Name:", self.app_name_edit)
-        settings_layout.addRow("Passport file:", self.passport_kind_cb)
-        settings_layout.addRow("Dither level:", self.dither_cb)
-        settings_group.setLayout(settings_layout)
-        layout.addWidget(settings_group)
+        self.settings_layout.addRow(tr("icon.lbl_app_name"), self.app_name_edit)
+        self.settings_layout.addRow(tr("icon.lbl_passport_file"), self.passport_kind_cb)
+        self.settings_layout.addRow(tr("icon.lbl_dither_level"), self.dither_cb)
+        self.settings_group.setLayout(self.settings_layout)
+        layout.addWidget(self.settings_group)
 
         # Drag-and-Drop область
-        self.drag_drop = DragDropArea("Перетащите PNG файлы сюда", [".png"])
+        self.drag_drop = DragDropArea(tr("icon.drag_title"), [".png"])
         self.drag_drop.files_dropped.connect(self.add_frames)
         layout.addWidget(self.drag_drop)
 
@@ -127,10 +128,10 @@ class IconEditorWidget(QWidget):
         # Кнопки управления
         btn_layout = QHBoxLayout()
         self.btn_add = QToolButton()
-        self.btn_add.setText("Add Frames")
+        self.btn_add.setText(tr("icon.btn_add"))
 
         self.btn_clear = QToolButton()
-        self.btn_clear.setText("Clear")
+        self.btn_clear.setText(tr("icon.btn_clear"))
 
         # Qt standard icons
         from PyQt6.QtWidgets import QStyle
@@ -158,6 +159,17 @@ class IconEditorWidget(QWidget):
 
         self._apply_passport_preset()
         self._apply_passport_kind_preset(self.passport_kind_cb.currentText())
+
+    def retranslate(self):
+        """Обновляет тексты при смене языка."""
+        self.settings_group.setTitle(tr("icon.group_settings"))
+        self.app_name_edit.setToolTip(tr("icon.tip_app_name"))
+        self.settings_layout.labelForField(self.app_name_edit).setText(tr("icon.lbl_app_name"))
+        self.settings_layout.labelForField(self.passport_kind_cb).setText(tr("icon.lbl_passport_file"))
+        self.settings_layout.labelForField(self.dither_cb).setText(tr("icon.lbl_dither_level"))
+        self.drag_drop.set_text(tr("icon.drag_title"))
+        self.btn_add.setText(tr("icon.btn_add"))
+        self.btn_clear.setText(tr("icon.btn_clear"))
 
     def add_frames(self, paths):
         dither_level = int(self.dither_cb.currentText().split(" ")[0])
@@ -190,7 +202,7 @@ class IconEditorWidget(QWidget):
         self._emit_ready()
 
     def _add_frames(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Add Icon Frames", "", "PNG (*.png)")
+        paths, _ = QFileDialog.getOpenFileNames(self, tr("icon.select_frames"), "", "PNG (*.png)")
         self.add_frames(paths)
 
     def _clear(self):

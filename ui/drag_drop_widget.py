@@ -4,6 +4,8 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
 from pathlib import Path
 
+from ui.i18n import trf, tr
+
 class DragDropArea(QWidget):
     """Область для Drag-and-Drop импорта файлов"""
     
@@ -12,8 +14,14 @@ class DragDropArea(QWidget):
     def __init__(self, title: str = "Перетащите PNG файлы сюда", accepted_extensions=None):
         super().__init__()
         self.accepted_extensions = accepted_extensions or [".png"]
+        self._default_text = title
         self.setAcceptDrops(True)
         self._setup_ui(title)
+
+    def set_text(self, text: str):
+        """Обновить основной текст области и перерисовать его."""
+        self._default_text = text
+        self.label.setText(text)
 
     def _setup_ui(self, title: str):
         layout = QVBoxLayout(self)
@@ -89,12 +97,12 @@ class DragDropArea(QWidget):
             
             if dropped_files:
                 self.files_dropped.emit(dropped_files)
-                self.label.setText(f"✅ Загружено файлов: {len(dropped_files)}")
+                self.label.setText(trf("drag.loaded", count=len(dropped_files)))
             else:
                 QMessageBox.warning(
                     self, 
-                    "Неверный формат", 
-                    f"Принимаются только файлы: {', '.join(self.accepted_extensions)}"
+                    tr("drag.wrong_format_title"), 
+                    trf("drag.wrong_format_msg", exts=", ".join(self.accepted_extensions))
                 )
         else:
             event.ignore()
@@ -112,7 +120,7 @@ class DragDropArea(QWidget):
                 font-weight: bold;
             }
         """)
-        self.label.setText("Перетащите PNG файлы сюда")
+        self.label.setText(self._default_text)
 
     def set_active(self, active: bool):
         """Визуальная индикация активности"""

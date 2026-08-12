@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from pathlib import Path
 from core.validator import FlipperAssetPackValidator, ValidationLevel
+from ui.i18n import tr, trf
 
 class ValidatorWidget(QWidget):
     """Виджет для валидации Asset Pack"""
@@ -14,6 +15,7 @@ class ValidatorWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.validator = FlipperAssetPackValidator()
+        self._pack_path_selected = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -22,15 +24,15 @@ class ValidatorWidget(QWidget):
 
         # Кнопки
         btn_layout = QHBoxLayout()
-        self.btn_select = QPushButton("📁 Выбрать Asset Pack")
-        self.btn_validate = QPushButton("✅ Проверить")
+        self.btn_select = QPushButton(tr("val.btn_select"))
+        self.btn_validate = QPushButton(tr("val.btn_validate"))
         self.btn_validate.setEnabled(False)
         btn_layout.addWidget(self.btn_select)
         btn_layout.addWidget(self.btn_validate)
         layout.addLayout(btn_layout)
 
         # Путь к папке
-        self.lbl_path = QLabel("Папка не выбрана")
+        self.lbl_path = QLabel(tr("val.path_default"))
         self.lbl_path.setStyleSheet("QLabel { color: #888; font-style: italic; }")
         layout.addWidget(self.lbl_path)
 
@@ -40,7 +42,7 @@ class ValidatorWidget(QWidget):
         layout.addWidget(self.progress)
 
         # Результаты
-        results_group = QGroupBox("📋 Результаты проверки")
+        self.results_group = QGroupBox(tr("val.group_results"))
         results_layout = QVBoxLayout()
         
         self.results_list = QListWidget()
@@ -59,11 +61,11 @@ class ValidatorWidget(QWidget):
             }
         """)
         results_layout.addWidget(self.results_list)
-        results_group.setLayout(results_layout)
-        layout.addWidget(results_group)
+        self.results_group.setLayout(results_layout)
+        layout.addWidget(self.results_group)
 
         # Статистика
-        self.lbl_stats = QLabel("Статистика: -")
+        self.lbl_stats = QLabel(tr("val.stats_default"))
         self.lbl_stats.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_stats.setStyleSheet("QLabel { font-weight: bold; color: #666; }")
         layout.addWidget(self.lbl_stats)
@@ -72,11 +74,26 @@ class ValidatorWidget(QWidget):
         self.btn_select.clicked.connect(self._select_pack)
         self.btn_validate.clicked.connect(self._validate_pack)
 
+    def retranslate(self):
+        """Обновляет тексты при смене языка."""
+        self.btn_select.setText(tr("val.btn_select"))
+        self.btn_validate.setText(tr("val.btn_validate"))
+        self.results_group.setTitle(tr("val.group_results"))
+        if not hasattr(self, "current_pack_path"):
+            self.lbl_path.setText(tr("val.path_default"))
+            self.lbl_stats.setText(tr("val.stats_default"))
+        else:
+            # Если выбор пути уже сделан, обновляем только подпись статистики (с сохранением суммы)
+            if not self.current_pack_path:
+                self.lbl_path.setText(tr("val.path_default"))
+        if self.results_list.count() == 0:
+            self.lbl_stats.setText(tr("val.stats_default"))
+
     def _select_pack(self):
         """Выбор папки Asset Pack"""
         folder = QFileDialog.getExistingDirectory(
             self, 
-            "Выберите папку Asset Pack",
+            tr("val.select_folder"),
             "",
             QFileDialog.Option.ShowDirsOnly
         )
@@ -86,7 +103,7 @@ class ValidatorWidget(QWidget):
             self.lbl_path.setStyleSheet("QLabel { color: #0f0; }")
             self.btn_validate.setEnabled(True)
             self.results_list.clear()
-            self.lbl_stats.setText("Статистика: -")
+            self.lbl_stats.setText(tr("val.stats_default"))
 
     def _validate_pack(self):
         """Запуск валидации"""
@@ -128,12 +145,13 @@ class ValidatorWidget(QWidget):
 
         # Статистика
         summary = self.validator.get_summary()
-        stats_text = (
-            f"📊 Всего: {sum(summary.values())} | "
-            f"✅ Успешно: {summary['success']} | "
-            f"ℹ️ Инфо: {summary['info']} | "
-            f"⚠️ Предупреждения: {summary['warning']} | "
-            f"❌ Ошибки: {summary['error']}"
+        stats_text = trf(
+            "val.stats",
+            total=sum(summary.values()),
+            success=summary['success'],
+            info=summary['info'],
+            warning=summary['warning'],
+            error=summary['error'],
         )
         self.lbl_stats.setText(stats_text)
         
@@ -158,5 +176,5 @@ class ValidatorWidget(QWidget):
     def clear_results(self):
         """Очистка результатов"""
         self.results_list.clear()
-        self.lbl_stats.setText("Статистика: -")
+        self.lbl_stats.setText(tr("val.stats_default"))
         self.btn_validate.setEnabled(False)

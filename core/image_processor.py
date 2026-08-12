@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageSequence
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import Qt
 from typing import Optional, Dict, Any
@@ -426,3 +426,94 @@ class FlipperImageProcessor:
         out_p.parent.mkdir(parents=True, exist_ok=True)
         out_img.convert("RGBA").save(out_p, format="PNG")
         return out_p
+
+    # ---------------- GIF crop/export ----------------
+
+    @classmethod
+    def export_gif_frames_custom_crop_to_png(
+        cls,
+        *,
+        input_path: str,
+        output_dir: str,
+        output_w: int,
+        output_h: int,
+        crop_left: int,
+        crop_top: int,
+        crop_right: int,
+        crop_bottom: int,
+        mode: str = "center_crop",
+    ) -> list[Path]:
+        """Экспорт всех кадров .gif в отдельные PNG по произвольному crop-rect.
+
+        Работает по тому же принципу, что и export_jpg_custom_crop_to_png:
+        рамка (crop_left/top/right/bottom) задаётся в пикселях исходного кадра,
+        каждый кадр обрезается по рамке и вписывается в (output_w, output_h).
+        Кадры сохраняются как {stem}_{output_w}x{output_h}_{NNN}.png.
+
+        Параметр mode оставлен для совместимости, но обрезка идёт строго по crop-rect.
+        """
+
+        del mode  # обрезка строго по рамке
+
+        p = Path(input_path)
+        if not p.exists():
+            raise FileNotFoundError(f"File not found: {input_path}")
+        if p.suffix.lower() != ".gif":
+            raise ValueError(f"Файл не является GIF: {input_path}")
+
+        out_dir_p = Path(output_dir)
+        out_dir_p.mkdir(parents=True, exist_ok=True)
+
+        img = Image.open(p)
+        if img.width == 0 or img.height == 0:
+            img.close()
+            raise ValueError("GIF has zero size")
+
+        # Размер холста анимации (у кадров GIF общий).
+        src_w, src_h = img.size
+
+        l = int(crop_left)
+        t = int(crop_top)
+        r = int(crop_right)
+        b = int(crop_bottom)
+
+        if r < l:
+            l, r = r, l
+        if b < t:
+            t, b = b, t
+
+        l = max(0, min(src_w, l))
+        r = max(0, min(src_w, r))
+        t = max(0, min(src_h, t))
+        b = max(0, min(src_h, b))
+
+        if r - l < 1 or b - t < 1:
+            img.close()
+            raise ValueError("Invalid crop rect: too small")
+
+        saved: list[Path] = []
+        try:
+            for index, frame in enumerate(ImageSequence.Iterator(img)):
+                frame = frame.convert("RGBA")
+
+                # Фреймы в редких случаях бывают меньше холста — приводим к общему размеру.
+                if frame.size != (src_w, src_h):
+                    frame = frame.resize((src_w, src_h), Image.Resampling.BILINEAR)
+
+                cropped = frame.crop((l, t, r, b))
+
+                # Та же логика подгонки, что и у JPG crop (contain).
+                out_img = cls._crop_and_resize_to_target(
+                    cropped,
+                    output_w,
+                    output_h,
+                    mode="contain",
+                )
+
+                out_path = out_dir_p / f"{p.stem}_{int(output_w)}x{int(output_h)}_{index:03d}.png"
+                out_img.convert("RGBA").save(out_path, format="PNG")
+                saved.append(out_path)
+        finally:
+            img.close()
+
+        return saved

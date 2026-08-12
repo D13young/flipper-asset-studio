@@ -2,16 +2,19 @@
 import os
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QListWidget, QLabel, QTabWidget,
-    QToolBar, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
-    QFileDialog, QMessageBox, QCheckBox, QTextEdit, QSizePolicy,
+    QToolBar, QToolButton, QMenu, QVBoxLayout, QHBoxLayout, QWidget,
+    QPushButton, QFileDialog, QMessageBox, QCheckBox, QTextEdit,
+    QSizePolicy,
 )
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QSize, QTimer, QSettings
 from PyQt6.QtGui import QIcon
 from pathlib import Path
 
-from ui.styles import load_qss
+from ui.styles import load_qss, THEME_NAMES, DEFAULT_THEME
+from ui.i18n import tr, trf, set_language, get_language, LANGUAGE_ORDER, LANGUAGES
+
 
 
 from core.image_processor import FlipperImageProcessor
@@ -27,7 +30,7 @@ from ui.validator_widget import ValidatorWidget
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Flipper Asset Studio")
+        self.setWindowTitle(tr("app.title"))
         self.resize(1280, 840)
 
         # Garanty resize on macOS
@@ -44,14 +47,20 @@ class MainWindow(QMainWindow):
         self._anim_frames = []
         self._anim_idx = 0
 
+        # Настройки приложения (сохранение выбранной темы и языка)
+        self.settings = QSettings("FlipperAssetStudio", "FlipperAssetStudio")
+
         # Инициализация UI
         self._setup_ui()
-
-        # Общие стили приложения
-        self.setStyleSheet(load_qss())
-
         self._setup_toolbar()
         self._setup_statusbar()
+
+        # Тема оформления (стили + кнопка переключения)
+        self._apply_theme(self._load_saved_theme())
+
+        # Язык интерфейса (кнопка переключения + локализация строк)
+        self._apply_language(self._load_saved_language())
+
         self._connect_signals()
 
 
@@ -69,15 +78,15 @@ class MainWindow(QMainWindow):
         # --- Левая панель (Навигация) ---
         self.nav_list = QListWidget()
         self.nav_list.addItems([
-            "Create",
-            "Single Image",
-            "JPG Crop → PNG",
-            "Animation Builder",
-            "Meta Preview",
-            "Icons",
-            "Validator",
-            "BM/BMX Preview",
-
+            tr("nav.create"),
+            tr("nav.single_image"),
+            tr("nav.jpg_crop"),
+            tr("nav.gif_to_png"),
+            tr("nav.animation_builder"),
+            tr("nav.meta_preview"),
+            tr("nav.icons"),
+            tr("nav.validator"),
+            tr("nav.bm_bmx_preview"),
         ])
 
 
@@ -108,7 +117,7 @@ class MainWindow(QMainWindow):
         self.preview_label = QLabel()
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumSize(384, 192)
-        self.preview_label.setText("Импортируйте PNG")
+        self.preview_label.setText(tr("single.preview_hint"))
 
         self.preview_label.setScaledContents(True)
         self.preview_label.setVisible(False)  # Скрыт по умолчанию
@@ -122,7 +131,7 @@ class MainWindow(QMainWindow):
         sl.addWidget(self.preview_label)
 
         
-        self.dither_cb = QCheckBox("Floyd-Steinberg Dithering")
+        self.dither_cb = QCheckBox(tr("single.dither"))
         self.dither_cb.setChecked(True)
         sl.addWidget(self.dither_cb)
 
@@ -130,7 +139,7 @@ class MainWindow(QMainWindow):
         self.anim_preview = QLabel()
         self.anim_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.anim_preview.setMinimumHeight(192)
-        self.anim_preview.setText("Добавьте кадры для предпросмотра")
+        self.anim_preview.setText(tr("anim.preview_hint"))
 
         shadow = QGraphicsDropShadowEffect(self.anim_preview)
         shadow.setBlurRadius(18)
@@ -168,12 +177,12 @@ class MainWindow(QMainWindow):
         tab_validator.setLayout(vl)
 
         # 6. Вкладка: BM/BMX Preview
-        self.bm_bmx_preview_drop = DragDropArea("Drop .bm / .bmx to preview", [".bm", ".bmx"])
+        self.bm_bmx_preview_drop = DragDropArea(tr("bm.drop_title"), [".bm", ".bmx"])
 
         self.bm_bmx_preview_label = QLabel()
         self.bm_bmx_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.bm_bmx_preview_label.setMinimumSize(328, 264)
-        self.bm_bmx_preview_label.setText("Загружайте .bm / .bmx")
+        self.bm_bmx_preview_label.setText(tr("bm.preview_hint"))
 
         self.bm_bmx_preview_label.setScaledContents(True)
 
@@ -195,12 +204,20 @@ class MainWindow(QMainWindow):
 
         from ui.create_editor import CreateEditorWidget
         from ui.jpg_crop_editor import JpegCropEditorWidget
+        from ui.gif_crop_editor import GifCropEditorWidget
         self.jpg_crop_editor = JpegCropEditorWidget()
         
         tab_jpg_crop = QWidget()
         jl = QVBoxLayout(tab_jpg_crop)
         jl.addWidget(self.jpg_crop_editor)
         tab_jpg_crop.setLayout(jl)
+
+        self.gif_crop_editor = GifCropEditorWidget()
+
+        tab_gif_crop = QWidget()
+        gl = QVBoxLayout(tab_gif_crop)
+        gl.addWidget(self.gif_crop_editor)
+        tab_gif_crop.setLayout(gl)
 
         self.create_editor = CreateEditorWidget()
 
@@ -215,14 +232,15 @@ class MainWindow(QMainWindow):
         icons_dir = Path(__file__).resolve().parent.parent / "assets" / "icons"
 
         tab_defs = [
-            (tab_create, "Create", icons_dir / "create.svg"),
-            (tab_single, "Single", icons_dir / "single.svg"),
-            (tab_jpg_crop, "JPG Crop", icons_dir / "jpg_crop.svg"),
-            (tab_anim, "Animation", icons_dir / "animation.svg"),
-            (tab_meta, "Meta", icons_dir / "meta.svg"),
-            (tab_icons, "Icons", icons_dir / "icons.svg"),
-            (tab_validator, "Validator", icons_dir / "validator.svg"),
-            (tab_bm_bmx, "BM/BMX", icons_dir / "bm_bmx.svg"),
+            (tab_create, tr("tab.create"), icons_dir / "create.svg"),
+            (tab_single, tr("tab.single"), icons_dir / "single.svg"),
+            (tab_jpg_crop, tr("tab.jpg_crop"), icons_dir / "jpg_crop.svg"),
+            (tab_gif_crop, tr("tab.gif_to_png"), icons_dir / "animation.svg"),
+            (tab_anim, tr("tab.animation"), icons_dir / "animation.svg"),
+            (tab_meta, tr("tab.meta"), icons_dir / "meta.svg"),
+            (tab_icons, tr("tab.icons"), icons_dir / "icons.svg"),
+            (tab_validator, tr("tab.validator"), icons_dir / "validator.svg"),
+            (tab_bm_bmx, tr("tab.bm_bmx"), icons_dir / "bm_bmx.svg"),
         ]
 
         for widget, text, icon_path in tab_defs:
@@ -258,7 +276,7 @@ class MainWindow(QMainWindow):
             return None
 
         # Кнопки (иконки + короткий текст)
-        self.btn_import = QPushButton(" Import")
+        self.btn_import = QPushButton(" " + tr("tb.import"))
         icon = _icon("create.svg") or _icon("single.svg") or _icon("icons.svg")
         if icon:
             self.btn_import.setIcon(icon)
@@ -266,7 +284,7 @@ class MainWindow(QMainWindow):
 
         self.btn_import.setFixedWidth(110)
 
-        self.btn_export = QPushButton(" Export")
+        self.btn_export = QPushButton(" " + tr("tb.export"))
         icon = _icon("animation.svg") or _icon("meta.svg") or _icon("validator.svg")
         if icon:
             self.btn_export.setIcon(icon)
@@ -274,7 +292,7 @@ class MainWindow(QMainWindow):
 
         self.btn_export.setFixedWidth(110)
 
-        self.btn_exit = QPushButton(" Exit")
+        self.btn_exit = QPushButton(" " + tr("tb.exit"))
         icon = _icon("validator.svg") or _icon("meta.svg") or _icon("icons.svg")
         if icon:
             self.btn_exit.setIcon(icon)
@@ -288,8 +306,150 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addWidget(self.btn_exit)
 
+        # --- Справа: кнопка смены темы ---
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        tb.addWidget(spacer)
+
+        self.theme_btn = QToolButton()
+        self.theme_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.theme_btn.setObjectName("themeBtn")
+        self.theme_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.theme_btn.setStatusTip(tr("tb.theme_tip"))
+
+        self.theme_menu = QMenu(self)
+        self.theme_actions = {}
+        for tname in THEME_NAMES:
+            action = self.theme_menu.addAction(tname)
+            action.setCheckable(True)
+            action.triggered.connect(lambda _, n=tname: self._apply_theme(n))
+            self.theme_actions[tname] = action
+
+        self.theme_btn.setMenu(self.theme_menu)
+        tb.addWidget(self.theme_btn)
+
+        # --- Справа: кнопка смены языка (рядом с кнопкой Theme) ---
+        self.lang_btn = QToolButton()
+        self.lang_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.lang_btn.setObjectName("langBtn")
+        self.lang_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.lang_btn.setStatusTip(tr("tb.language_tip"))
+
+        self.lang_menu = QMenu(self)
+        self.lang_actions = {}
+        for lid in LANGUAGE_ORDER:
+            action = self.lang_menu.addAction(LANGUAGES[lid])
+            action.setCheckable(True)
+            action.setData(lid)
+            action.triggered.connect(lambda _, lid=lid: self._apply_language(lid))
+            self.lang_actions[lid] = action
+
+        self.lang_btn.setMenu(self.lang_menu)
+        self.lang_btn.setText(tr("tb.language"))
+        tb.addWidget(self.lang_btn)
+
+    def _load_saved_theme(self) -> str:
+        saved = self.settings.value("ui/theme", DEFAULT_THEME)
+        return saved if saved in THEME_NAMES else DEFAULT_THEME
+
+    def _save_theme(self, name: str) -> None:
+        self.settings.setValue("ui/theme", name)
+
+    def _load_saved_language(self) -> str:
+        saved = self.settings.value("ui/language", "ru")
+        return saved if saved in LANGUAGES else "ru"
+
+    def _save_language(self, lang: str) -> None:
+        self.settings.setValue("ui/language", lang)
+
+    def _apply_theme(self, name: str) -> None:
+        if name not in THEME_NAMES:
+            name = DEFAULT_THEME
+        self.current_theme = name
+        self.setStyleSheet(load_qss(name))
+        self.theme_btn.setText(tr("tb.theme"))
+        for tname, action in self.theme_actions.items():
+            action.setChecked(tname == name)
+        self._save_theme(name)
+
+    def _apply_language(self, lang: str) -> None:
+        """Переключает язык интерфейса и переводит все тексты."""
+        lang = lang if lang in LANGUAGES else "ru"
+        set_language(lang)
+        for lid, action in self.lang_actions.items():
+            action.setChecked(lid == lang)
+        # Кнопка показывает название текущего языка
+        self.lang_btn.setText(LANGUAGES[lang])
+        self.retranslate()
+        # Переводим дочерние виджеты
+        for w in (self.create_editor, self.jpg_crop_editor, self.gif_crop_editor,
+                  self.icon_editor, self.anim_timeline, self.validator_widget):
+            retranslate = getattr(w, "retranslate", None)
+            if callable(retranslate):
+                retranslate()
+        self._save_language(lang)
+
+    def retranslate(self):
+        """Переводит строки главного окна."""
+        nav_items = [
+            tr("nav.create"),
+            tr("nav.single_image"),
+            tr("nav.jpg_crop"),
+            tr("nav.gif_to_png"),
+            tr("nav.animation_builder"),
+            tr("nav.meta_preview"),
+            tr("nav.icons"),
+            tr("nav.validator"),
+            tr("nav.bm_bmx_preview"),
+        ]
+        for i, text in enumerate(nav_items):
+            if i < self.nav_list.count():
+                self.nav_list.item(i).setText(text)
+
+        tab_keys = [
+            "tab.create", "tab.single", "tab.jpg_crop", "tab.gif_to_png",
+            "tab.animation", "tab.meta", "tab.icons", "tab.validator", "tab.bm_bmx",
+        ]
+        for i, key in enumerate(tab_keys):
+            if i < self.tabs.count():
+                self.tabs.setTabText(i, tr(key))
+
+        self.btn_import.setText(" " + tr("tb.import"))
+        self.btn_export.setText(" " + tr("tb.export"))
+        self.btn_exit.setText(" " + tr("tb.exit"))
+        self.theme_btn.setText(tr("tb.theme"))
+        self.theme_btn.setStatusTip(tr("tb.theme_tip"))
+        # Кнопка языка показывает название активного языка
+        self.lang_btn.setText(LANGUAGES[get_language()])
+        self.lang_btn.setStatusTip(tr("tb.language_tip"))
+
+        self.statusBar().showMessage(tr("status.ready"))
+
+        self.drag_drop.set_text(tr("single.drag_title"))
+        self.preview_label.setText(tr("single.preview_hint"))
+        self.anim_preview.setText(tr("anim.preview_hint"))
+        self.bm_bmx_preview_drop.set_text(tr("bm.drop_title"))
+        self.bm_bmx_preview_label.setText(tr("bm.preview_hint"))
+
+    def _load_saved_theme(self) -> str:
+        saved = self.settings.value("ui/theme", DEFAULT_THEME)
+        return saved if saved in THEME_NAMES else DEFAULT_THEME
+
+    def _save_theme(self, name: str) -> None:
+        self.settings.setValue("ui/theme", name)
+
+    def _apply_theme(self, name: str) -> None:
+        if name not in THEME_NAMES:
+            name = DEFAULT_THEME
+        self.current_theme = name
+        self.setStyleSheet(load_qss(name))
+        self.theme_btn.setText(tr("tb.theme"))
+        for tname, action in self.theme_actions.items():
+            action.setChecked(tname == name)
+        self._save_theme(name)
+
     def _setup_statusbar(self):
-        self.statusBar().showMessage("Готово. Выберите PNG или добавьте кадры анимации.")
+        self.statusBar().showMessage(tr("status.ready"))
 
     def _connect_signals(self):
         # Кнопки
@@ -328,19 +488,19 @@ class MainWindow(QMainWindow):
             pm, w, h = FlipperBmBmxDecoder.load_frame_as_pixmap(p, scale=3)
             self.bm_bmx_preview_label.setPixmap(pm)
             self.bm_bmx_preview_label.setText("")
-            self.statusBar().showMessage(f"OK {Path(p).name} | {w}x{h}", 3000)
+            self.statusBar().showMessage(trf("status.bm_ok", name=Path(p).name, w=w, h=h), 3000)
 
         except Exception as e:
             self.bm_bmx_preview_label.setPixmap(QPixmap())
-            self.bm_bmx_preview_label.setText(f"Error: {e}")
-            self.statusBar().showMessage(f"Error {Path(p).name}: {e}", 5000)
+            self.bm_bmx_preview_label.setText(trf("bm.error_label", err=e))
+            self.statusBar().showMessage(trf("status.bm_err", name=Path(p).name, err=e), 5000)
 
 
     def _import_png(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select PNG", "", "PNG Images (*.png)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("dlg.select_png"), "", "PNG Images (*.png)")
         if path:
             self.current_asset_path = path
-            self.statusBar().showMessage(f"📄 {os.path.basename(path)}", 3000)
+            self.statusBar().showMessage(trf("status.loaded", name=os.path.basename(path)), 3000)
             self._process_single()
 
 
@@ -357,10 +517,10 @@ class MainWindow(QMainWindow):
 
             self.preview_label.setPixmap(d["preview"])
             self.preview_label.setVisible(True)
-            self.statusBar().showMessage(f"✅ 128x64 | {d['byte_length']}B", 3000)
+            self.statusBar().showMessage(trf("status.ok_128x64", size=d['byte_length']), 3000)
         except Exception as e:
             self.preview_label.setVisible(False)
-            self.statusBar().showMessage(f"❌ Ошибка: {e}", 5000)
+            self.statusBar().showMessage(trf("status.error", err=e), 5000)
 
 
     def _on_icon_data_ready(self, app_name, paths, w, h, dither_level):
@@ -385,7 +545,7 @@ class MainWindow(QMainWindow):
             self._restart_animation()
         else:
             self.anim_timer.stop()
-            self.anim_preview.setText("Добавьте кадры")
+            self.anim_preview.setText(tr("anim.preview_hint_short"))
 
     def _restart_animation(self):
         """Сброс и запуск таймера"""
@@ -463,8 +623,8 @@ class MainWindow(QMainWindow):
                 if len(files) > 1:
                     reply = QMessageBox.question(
                         self,
-                        "Добавить в анимацию?",
-                        f"Обнаружено {len(files)} файлов. Добавить их в анимацию?",
+                        tr("dlg.add_to_animation"),
+                        trf("dlg.multi_files", count=len(files)),
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                     )
                     if reply == QMessageBox.StandardButton.Yes:
@@ -478,10 +638,10 @@ class MainWindow(QMainWindow):
 
 
     def _import_png(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select PNG", "", "PNG Images (*.png)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("dlg.select_png"), "", "PNG Images (*.png)")
         if path:
             self.current_asset_path = path
-            self.statusBar().showMessage(f"📄 {os.path.basename(path)}", 3000)
+            self.statusBar().showMessage(trf("status.loaded", name=os.path.basename(path)), 3000)
             self._process_single()    
 
     # --- Логика Экспорта ---
@@ -489,14 +649,14 @@ class MainWindow(QMainWindow):
     def _export_pack(self):
         # Определяем, какая вкладка активна
         active_tab = self.tabs.currentWidget()
-        out_dir = QFileDialog.getExistingDirectory(self, "Выберите папку экспорта")
+        out_dir = QFileDialog.getExistingDirectory(self, tr("dlg.export_folder"))
         if not out_dir: return
 
         try:
             if active_tab == self.anim_timeline.parent(): 
                 # ЭКСПОРТ АНИМАЦИИ (Дельфин)
                 if not self.anim_manager.frames:
-                    raise ValueError("Нет кадров анимации")
+                    raise ValueError(tr("msg.no_anim_frames"))
                 
                 meta = self.anim_manager.generate_meta_txt()
                 manifest = self.anim_manager.generate_manifest_txt(
@@ -536,7 +696,7 @@ class MainWindow(QMainWindow):
                 (anims_out_dir / "manifest.txt").write_text(manifest_txt, encoding="utf-8")
 
 
-                msg = "Анимация экспортирована!"
+                msg = tr("msg.anim_exported")
 
             elif active_tab == self.create_editor.parent():
 
@@ -545,7 +705,7 @@ class MainWindow(QMainWindow):
                 name_png = self.create_editor.name_png_edit.text().strip() or "icon"
 
                 if not frames_pixels_list:
-                    raise ValueError("Нет кадров для экспорта")
+                    raise ValueError(tr("msg.no_create_frames"))
 
                 # Экспортируем каждый кадр как отдельный PNG прямо в выбранную папку.
                 from PIL import Image
@@ -571,7 +731,7 @@ class MainWindow(QMainWindow):
                         out_path = target_folder / f"{name_png}_{i:03d}.png"
                         pixels_to_png(frame_pixels, out_path)
 
-                msg = f"Create: экспортировано {len(frames_pixels_list)} PNG кадр(ов) в: {target_folder}" 
+                msg = trf("msg.create_exported", count=len(frames_pixels_list), folder=target_folder)
 
 
 
@@ -581,7 +741,7 @@ class MainWindow(QMainWindow):
                 # ЭКСПОРТ ИКОНКИ
                 count = self.icon_editor.frame_list.count()
                 if count == 0:
-                    raise ValueError("Нет кадров иконки")
+                    raise ValueError(tr("msg.no_icon_frames"))
                 
                 # UserRole хранит dict {path, bytes, preview}
                 items = [self.icon_editor.frame_list.item(i) for i in range(count)]
@@ -642,7 +802,7 @@ class MainWindow(QMainWindow):
                 )
 
 
-                msg = f"Иконка экспортирована: {file_basename}.bmx" 
+                msg = trf("msg.icon_exported", name=file_basename)
 
 
             
@@ -650,9 +810,9 @@ class MainWindow(QMainWindow):
                 msg = "Выберите вкладку с контентом для экспорта"
             
             self.statusBar().showMessage(f"✅ {msg}", 5000)
-            QMessageBox.information(self, "Готово", msg)
+            QMessageBox.information(self, tr("dlg.done"), msg)
 
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
+            QMessageBox.critical(self, tr("dlg.error"), str(e))
 
 
