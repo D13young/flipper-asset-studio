@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ui.styles import load_qss, THEME_NAMES, DEFAULT_THEME
 from ui.i18n import tr, trf, set_language, get_language, LANGUAGE_ORDER, LANGUAGES
+from ui.background import BackgroundRunner
 
 
 
@@ -50,6 +51,9 @@ class MainWindow(QMainWindow):
         # Настройки приложения (сохранение выбранной темы и языка)
         self.settings = QSettings("FlipperAssetStudio", "FlipperAssetStudio")
 
+        # Фоновые задачи (обработка PNG/GIF/валидация вне UI-потока) — A2
+        self._bg = BackgroundRunner(self)
+
         # Инициализация UI
         self._setup_ui()
         self._setup_toolbar()
@@ -62,6 +66,18 @@ class MainWindow(QMainWindow):
         self._apply_language(self._load_saved_language())
 
         self._connect_signals()
+
+    def closeEvent(self, event):
+        # Останавливаем фоновые потоки, чтобы приложение корректно завершилось (A2).
+        for runner in (
+            self._bg,
+            getattr(self.validator_widget, "_bg", None),
+            getattr(self.gif_crop_editor, "_bg", None),
+            getattr(self.anim_timeline, "_bg", None),
+        ):
+            if runner is not None:
+                runner.shutdown()
+        super().closeEvent(event)
 
 
     def _setup_ui(self):
@@ -108,7 +124,7 @@ class MainWindow(QMainWindow):
         sl = QVBoxLayout(tab_single)
         
         # Drag-and-Drop область
-        self.drag_drop = DragDropArea("Перетащите PNG или нажмите Import", [".png"])
+        self.drag_drop = DragDropArea(tr("single.drag_title"), [".png"])
 
         self.drag_drop.files_dropped.connect(self._on_files_dropped)
         sl.addWidget(self.drag_drop)
@@ -510,17 +526,27 @@ class MainWindow(QMainWindow):
             self.preview_label.setVisible(False)
             return
 
-        try:
-            # single-image: dither_cb переключает “включить/выключить” дизеринг
-            dither_level = 1 if self.dither_cb.isChecked() else 0
-            d = FlipperImageProcessor.process_png(self.current_asset_path, dither_level=dither_level)
+        # single-image: dither_cb переключает “включить/выключить” дизеринг
+        # Обработка PNG выполняется в фоновом потоке (A2).
+        dither_level = 1 if self.dither_cb.isChecked() else 0
+        self._bg.run(
+            FlipperImageProcessor.process_png_to_bytes,
+            on_done=self._on_single_done,
+            on_error=self._on_single_error,
+            args=(self.current_asset_path,),
+            kwargs={"dither_level": dither_level},
+        )
 
-            self.preview_label.setPixmap(d["preview"])
-            self.preview_label.setVisible(True)
-            self.statusBar().showMessage(trf("status.ok_128x64", size=d['byte_length']), 3000)
-        except Exception as e:
-            self.preview_label.setVisible(False)
-            self.statusBar().showMessage(trf("status.error", err=e), 5000)
+    def _on_single_done(self, raw_bytes):
+        # QPixmap строим строго в UI-потоке.
+        preview = FlipperImageProcessor.bytes_to_preview(raw_bytes)
+        self.preview_label.setPixmap(preview)
+        self.preview_label.setVisible(True)
+        self.statusBar().showMessage(trf("status.ok_128x64", size=len(raw_bytes)), 3000)
+
+    def _on_single_error(self, message):
+        self.preview_label.setVisible(False)
+        self.statusBar().showMessage(trf("status.error", err=message), 5000)
 
 
     def _on_icon_data_ready(self, app_name, paths, w, h, dither_level):
@@ -576,7 +602,7 @@ class MainWindow(QMainWindow):
         if files:
             # Берем первый файл
             self.current_asset_path = files[0]
-            self.statusBar().showMessage(f"📄 Drag&Drop: {len(files)} файл(ов)", 3000)
+            self.statusBar().showMessage(trf("status.dnd_files", count=len(files)), 3000)
             self._process_single()
             
             active_tab = self.tabs.currentWidget()
@@ -613,10 +639,7 @@ class MainWindow(QMainWindow):
                 self.icon_editor._emit_ready()
 
             elif active_tab == self.anim_timeline.parent():
-                for f in files:
-                    self.anim_manager.add_frame(f, dither_level=int(self.anim_timeline.spin_dither_level.value()))
-                self.anim_timeline._refresh_list()
-                self.anim_timeline._emit_updates()
+                self.anim_timeline.import_paths(files)
 
 
             else:
@@ -628,12 +651,10 @@ class MainWindow(QMainWindow):
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                     )
                     if reply == QMessageBox.StandardButton.Yes:
-                        self.tabs.setCurrentIndex(1)
-                        for f in files:
-                            self.anim_manager.add_frame(f)
-
-                        self.anim_timeline._refresh_list()
-                        self.anim_timeline._emit_updates()
+                        # Ведём на вкладку Animation, а не на Single (индекс не хардкодим).
+                        anim_tab_index = self.tabs.indexOf(self.anim_timeline.parent())
+                        self.tabs.setCurrentIndex(anim_tab_index if anim_tab_index >= 0 else 4)
+                        self.anim_timeline.import_paths(files)
 
 
 
@@ -647,172 +668,135 @@ class MainWindow(QMainWindow):
     # --- Логика Экспорта ---
 
     def _export_pack(self):
-        # Определяем, какая вкладка активна
-        active_tab = self.tabs.currentWidget()
+        """Экспорт текущей вкладки в выбранную папку (A1: декомпозиция)."""
         out_dir = QFileDialog.getExistingDirectory(self, tr("dlg.export_folder"))
-        if not out_dir: return
+        if not out_dir:
+            return
 
         try:
-            if active_tab == self.anim_timeline.parent(): 
-                # ЭКСПОРТ АНИМАЦИИ (Дельфин)
-                if not self.anim_manager.frames:
-                    raise ValueError(tr("msg.no_anim_frames"))
-                
-                meta = self.anim_manager.generate_meta_txt()
-                manifest = self.anim_manager.generate_manifest_txt(
-                    self.anim_timeline.line_name.text(),
-                    self.anim_timeline.spin_bh_min.value(),
-                    self.anim_timeline.spin_bh_max.value(),
-                    self.anim_timeline.spin_lv_min.value(),
-                    self.anim_timeline.spin_lv_max.value(),
-                    self.anim_timeline.spin_weight.value(),
-                )
-                
-                anim_name = self.anim_timeline.line_name.text()
-                anims_out_dir = Path(out_dir) / "Anims"
-
-                meta_txt = meta
-                manifest_txt = manifest
-
-                # ВАЖНО: экспорт анимации в формате Asset Pack Momentum:
-                # manifest.txt должен быть ТОЛЬКО в папке Anims/ (не в папке конкретной анимации)
-                # Поэтому генерим файл манифеста вручную и после вызова exporter удаляем его из anim_dir.
-
-                FlipperExporter.export_animation(
-                    self.anim_manager.get_frame_bytes_list(),
-                    meta_txt,
-                    manifest_txt,
-                    anim_name,
-                    anims_out_dir,
-                    compressed=False,
-
-                    create_zip=False
-                )
-
-                anim_dir = anims_out_dir / anim_name
-                (anim_dir / "manifest.txt").unlink(missing_ok=True)
-
-                # Momentum ожидает manifest.txt в корне папки Anims/.
-                (anims_out_dir / "manifest.txt").write_text(manifest_txt, encoding="utf-8")
-
-
-                msg = tr("msg.anim_exported")
-
+            out_dir = Path(out_dir)
+            active_tab = self.tabs.currentWidget()
+            if active_tab == self.anim_timeline.parent():
+                msg = self._export_animation_pack(out_dir)
             elif active_tab == self.create_editor.parent():
-
-                frames_pixels_list = self.create_editor.get_frames_pixels_list()
-                w, h, fps = self.create_editor.get_params()
-                name_png = self.create_editor.name_png_edit.text().strip() or "icon"
-
-                if not frames_pixels_list:
-                    raise ValueError(tr("msg.no_create_frames"))
-
-                # Экспортируем каждый кадр как отдельный PNG прямо в выбранную папку.
-                from PIL import Image
-
-                target_folder = Path(out_dir)
-
-                def pixels_to_png(pixels_2d: list[list[int]], out_path: Path):
-                    # 0 = black, 1 = white (по текущей логике canvas)
-                    img = Image.new("L", (w, h), 0)
-                    # создаём байтовый буфер 0/255 построчно
-                    row_bytes = []
-                    for yy in range(h):
-                        row = [255 if int(pixels_2d[yy][xx]) else 0 for xx in range(w)]
-                        row_bytes.extend(row)
-                    img.putdata(row_bytes)
-                    img.save(out_path, format="PNG")
-
-                if len(frames_pixels_list) == 1:
-                    out_path = target_folder / f"{name_png}.png"
-                    pixels_to_png(frames_pixels_list[0], out_path)
-                else:
-                    for i, frame_pixels in enumerate(frames_pixels_list):
-                        out_path = target_folder / f"{name_png}_{i:03d}.png"
-                        pixels_to_png(frame_pixels, out_path)
-
-                msg = trf("msg.create_exported", count=len(frames_pixels_list), folder=target_folder)
-
-
-
+                msg = self._export_create_pack(out_dir)
             elif active_tab == self.icon_editor.parent():
-
-
-                # ЭКСПОРТ ИКОНКИ
-                count = self.icon_editor.frame_list.count()
-                if count == 0:
-                    raise ValueError(tr("msg.no_icon_frames"))
-                
-                # UserRole хранит dict {path, bytes, preview}
-                items = [self.icon_editor.frame_list.item(i) for i in range(count)]
-                paths = []
-                for it in items:
-                    data = it.data(Qt.ItemDataRole.UserRole)
-                    if isinstance(data, dict) and data.get("path"):
-                        paths.append(data["path"])
-                    else:
-                        raise TypeError("Icons export: expected dict with 'path' in UserRole")
-
-                w = self.icon_editor.spin_w.value()
-                h = self.icon_editor.spin_h.value()
-                # В Icons FPS не используется
-
-                # app_name здесь используется как passport-kind (passport / passport_bad / ...)
-                base_app = (self.icon_editor.app_name_edit.text() or "").strip().lower()
-                dither_level = int(self.icon_editor.dither_cb.currentText().split(" ")[0])
-
-                # Конвертируем PNG в байты Flipper с выбранным dither
-                frame_bytes_list = []
-                for p in paths:
-                    proc = FlipperImageProcessor.process_png(
-                        p,
-                        dither_level=dither_level,
-                        output_w=w,
-                        output_h=h,
-                    )
-                    frame_bytes_list.append(proc["bytes"])
-
-
-                # basename для passport (строго из ТЗ, без App Name в имени файла)
-                file_basename = None
-                if base_app == "passport":
-                    file_basename = "passport_128x64"
-                elif base_app in {"passport_bad", "passport_happy", "passport_okay"}:
-                    file_basename = f"{base_app}_46x49"
-                else:
-                    # На случай если UI будет в другом состоянии
-                    file_basename = "icon"
-
-                # По ТЗ: создаём ровно: out_dir/Icons/Passport/<file>
-                # self.icon_editor.app_name_edit — паспорт-категория, но она участвует только в имени файла.
-                target_folder = Path(out_dir) / "Passport"
-
-                # У passport-иконок нет анимации, поэтому FPS/кадровая логика не нужна
-                
-                FlipperIconBuilder.export_icon(
-                    frame_bytes_list,
-                    w,
-                    h,
-                    1,
-                    output_folder=target_folder,
-                    compress=True,
-                    file_basename=file_basename,
-                    frames_paths=paths,
-                    dither_level=dither_level,
-                )
-
-
-                msg = trf("msg.icon_exported", name=file_basename)
-
-
-            
+                msg = self._export_icons_pack(out_dir)
             else:
-                msg = "Выберите вкладку с контентом для экспорта"
-            
+                msg = tr("msg.select_tab")
+
             self.statusBar().showMessage(f"✅ {msg}", 5000)
             QMessageBox.information(self, tr("dlg.done"), msg)
-
         except Exception as e:
             QMessageBox.critical(self, tr("dlg.error"), str(e))
 
+    def _export_animation_pack(self, out_dir: Path) -> str:
+        """Экспорт анимации (Дельфин): кадры .bm + meta.txt + manifest.
 
+        manifest.txt кладётся ТОЛЬКО в корень Anims/ (формат Momentum), поэтому
+        экспортёру передаётся manifest_in_anim_dir=False.
+        """
+        if not self.anim_manager.frames:
+            raise ValueError(tr("msg.no_anim_frames"))
+
+        meta_txt = self.anim_manager.generate_meta_txt()
+        manifest_txt = self.anim_manager.generate_manifest_txt(
+            self.anim_timeline.line_name.text(),
+            self.anim_timeline.spin_bh_min.value(),
+            self.anim_timeline.spin_bh_max.value(),
+            self.anim_timeline.spin_lv_min.value(),
+            self.anim_timeline.spin_lv_max.value(),
+            self.anim_timeline.spin_weight.value(),
+        )
+        anim_name = self.anim_timeline.line_name.text()
+        anims_out_dir = out_dir / "Anims"
+
+        FlipperExporter.export_animation(
+            self.anim_manager.get_frame_bytes_list(),
+            meta_txt,
+            manifest_txt,
+            anim_name,
+            anims_out_dir,
+            compressed=False,
+            create_zip=False,
+            manifest_in_anim_dir=False,
+        )
+        (anims_out_dir / "manifest.txt").write_text(manifest_txt, encoding="utf-8")
+        return tr("msg.anim_exported")
+
+    def _export_create_pack(self, out_dir: Path) -> str:
+        """Экспорт пиксельного редактора: каждый кадр — отдельный PNG."""
+        frames_pixels_list = self.create_editor.get_frames_pixels_list()
+        w, h, _fps = self.create_editor.get_params()
+        name_png = self.create_editor.name_png_edit.text().strip() or "icon"
+
+        if not frames_pixels_list:
+            raise ValueError(tr("msg.no_create_frames"))
+
+        from PIL import Image
+
+        def _pixels_to_png(pixels_2d, out_path):
+            # 0 = black, 1 = white (по текущей логике canvas)
+            img = Image.new("L", (w, h), 0)
+            row_bytes = []
+            for yy in range(h):
+                row = [255 if int(pixels_2d[yy][xx]) else 0 for xx in range(w)]
+                row_bytes.extend(row)
+            img.putdata(row_bytes)
+            img.save(out_path, format="PNG")
+
+        if len(frames_pixels_list) == 1:
+            _pixels_to_png(frames_pixels_list[0], out_dir / f"{name_png}.png")
+        else:
+            for i, frame_pixels in enumerate(frames_pixels_list):
+                _pixels_to_png(frame_pixels, out_dir / f"{name_png}_{i:03d}.png")
+
+        return trf("msg.create_exported", count=len(frames_pixels_list), folder=out_dir)
+
+    def _export_icons_pack(self, out_dir: Path) -> str:
+        """Экспорт passport-иконок: out_dir/Passport/<basename>.bmx."""
+        count = self.icon_editor.frame_list.count()
+        if count == 0:
+            raise ValueError(tr("msg.no_icon_frames"))
+
+        items = [self.icon_editor.frame_list.item(i) for i in range(count)]
+        paths = []
+        for it in items:
+            data = it.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict) and data.get("path"):
+                paths.append(data["path"])
+            else:
+                raise TypeError("Icons export: expected dict with 'path' in UserRole")
+
+        w = self.icon_editor.spin_w.value()
+        h = self.icon_editor.spin_h.value()
+        base_app = (self.icon_editor.app_name_edit.text() or "").strip().lower()
+        dither_level = int(self.icon_editor.dither_cb.currentText().split(" ")[0])
+
+        # Конвертируем PNG в bytes Flipper (без промежуточного QPixmap) — A2.
+        frame_bytes_list = [
+            FlipperImageProcessor.process_png_to_bytes(
+                p, dither_level=dither_level, output_w=w, output_h=h
+            )
+            for p in paths
+        ]
+
+        # basename для passport строго по типу (без имени приложения в файле).
+        if base_app == "passport":
+            file_basename = "passport_128x64"
+        elif base_app in {"passport_bad", "passport_happy", "passport_okay"}:
+            file_basename = f"{base_app}_46x49"
+        else:
+            file_basename = "icon"
+
+        target_folder = out_dir / "Passport"
+        FlipperIconBuilder.export_icon(
+            frame_bytes_list,
+            w, h, 1,
+            output_folder=target_folder,
+            compress=True,
+            file_basename=file_basename,
+            frames_paths=paths,
+            dither_level=dither_level,
+        )
+        return trf("msg.icon_exported", name=file_basename)

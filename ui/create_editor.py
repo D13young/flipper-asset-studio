@@ -619,7 +619,6 @@ class CreateEditorWidget(QWidget):
             return
 
         app_name = self.name_png_edit.text()
-        # fps=1 (UI FPS/Preview убраны по ТЗ, но main_window ожидает fps)
         fps = 1
         w = int(self.canvas.width_px)
         h = int(self.canvas.height_px)

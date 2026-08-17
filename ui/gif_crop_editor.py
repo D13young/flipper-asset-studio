@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from core.image_processor import FlipperImageProcessor
 from ui.jpg_crop_editor import CropPreviewWidget
 from ui.drag_drop_widget import DragDropArea
+from ui.background import BackgroundRunner
 from ui.i18n import tr, trf
 
 
@@ -49,6 +50,9 @@ class GifCropEditorWidget(QWidget):
         self._input_path: str | None = None
         self._frames_pil: list[Image.Image] = []
         self._preview_cache: dict[int, QPixmap] = {}
+        self._exporting = False
+        self._export_out_dir: str = ""
+        self._bg = BackgroundRunner(self)
 
         self._setup_ui()
         self._connect_signals()
@@ -253,7 +257,7 @@ class GifCropEditorWidget(QWidget):
     # ---------------- Export ----------------
 
     def _on_export(self):
-        if not self._input_path or not self._frames_pil:
+        if self._exporting or not self._input_path or not self._frames_pil:
             return
 
         out_dir = QFileDialog.getExistingDirectory(self, tr("gif.export_dir"))
@@ -263,23 +267,41 @@ class GifCropEditorWidget(QWidget):
         out_w, out_h = self._selected_out_size()
         left, top, right, bottom = self.preview_widget.get_crop_rect_in_source()
 
-        try:
-            saved = FlipperImageProcessor.export_gif_frames_custom_crop_to_png(
-                input_path=str(self._input_path),
-                output_dir=out_dir,
-                output_w=out_w,
-                output_h=out_h,
-                crop_left=left,
-                crop_top=top,
-                crop_right=right,
-                crop_bottom=bottom,
-            )
-        except Exception as e:
-            QMessageBox.critical(self, tr("dlg.error"), str(e))
-            return
+        # Экспорт всех кадров (до 4096) выполняется в фоновом потоке (A2),
+        # чтобы UI не зависал на время обработки.
+        self._exporting = True
+        self._export_out_dir = out_dir
+        self.btn_export.setEnabled(False)
+        self.btn_export.setText(tr("gif.exporting"))
 
-        msg = trf("gif.exported", count=len(saved), dir=out_dir)
+        self._bg.run(
+            FlipperImageProcessor.export_gif_frames_custom_crop_to_png,
+            on_done=self._on_export_done,
+            on_error=self._on_export_error,
+            kwargs={
+                "input_path": str(self._input_path),
+                "output_dir": out_dir,
+                "output_w": out_w,
+                "output_h": out_h,
+                "crop_left": left,
+                "crop_top": top,
+                "crop_right": right,
+                "crop_bottom": bottom,
+            },
+        )
+
+    def _on_export_done(self, saved: list):
+        self._exporting = False
+        self.btn_export.setEnabled(True)
+        self.btn_export.setText(tr("gif.btn_export"))
+        msg = trf("gif.exported", count=len(saved), dir=self._export_out_dir)
         QMessageBox.information(self, tr("dlg.done"), msg)
+
+    def _on_export_error(self, message: str):
+        self._exporting = False
+        self.btn_export.setEnabled(True)
+        self.btn_export.setText(tr("gif.btn_export"))
+        QMessageBox.critical(self, tr("dlg.error"), message)
 
 
 __all__ = ["GifCropEditorWidget"]

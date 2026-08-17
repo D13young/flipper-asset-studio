@@ -39,7 +39,9 @@ class FlipperBmBmxDecoder:
 
     @staticmethod
     def _expected_packed_bytes(width: int, height: int) -> int:
-        return (int(width) * int(height)) // 8
+        """Размер packed-данных при по-строчной упаковке (каждая строка
+        дополняется до полного байта), как это делает asset_packer.py."""
+        return ((int(width) + 7) // 8) * int(height)
 
     @classmethod
     def _decode_bm_bytes_to_xbm(cls, raw: bytes, *, path: str) -> Tuple[int, bytes]:
@@ -98,11 +100,15 @@ class FlipperBmBmxDecoder:
     def _xbm_to_preview_bytes(cls, xbm_bytes: bytes, width: int, height: int) -> bytes:
         """Конвертирует XBM bytes (black=1, white=0) в preview bytes (white=1, black=0).
 
+        Работает с по-строчной (row-aligned) упаковкой Flipper/XBM:
+        для ширины 46 -> 6 байт на строку, биты внутри байта — LSB-first
+        (как в asset_packer.py через PIL XBM).
         Также обрезает/дополняет до ожидаемого размера.
         """
         import numpy as np
 
         expected = cls._expected_packed_bytes(width, height)
+        row_bytes = (int(width) + 7) // 8
 
         if len(xbm_bytes) < expected:
             # Дополняем нулями (в XBM 0 = white)
@@ -110,23 +116,15 @@ class FlipperBmBmxDecoder:
         elif len(xbm_bytes) > expected:
             xbm_bytes = xbm_bytes[:expected]
 
-        arr = np.frombuffer(xbm_bytes, dtype=np.uint8)
-        bits = np.unpackbits(arr, bitorder="big")
+        arr = np.frombuffer(xbm_bytes, dtype=np.uint8).reshape(height, row_bytes)
+        bits = np.unpackbits(arr, axis=1, bitorder="little")[:, :width]
 
         # XBM: black=1, white=0.
         # Preview для Flipper: white=1, black=0.
         bits = 1 - bits
 
-        # В некоторых пайплайнах порядок битов внутри байта инвертирован.
-        # Это даёт характерный эффект «разрезания по вертикали».
-        bits = bits.reshape(-1, 8)[:, ::-1].reshape(-1)
-
-
-
-
-
-        preview_bytes = np.packbits(bits, bitorder="big").tobytes()
-        return preview_bytes[:expected]
+        preview_bytes = np.packbits(bits, axis=1, bitorder="little").tobytes()
+        return preview_bytes
 
 
 
@@ -134,6 +132,11 @@ class FlipperBmBmxDecoder:
     @classmethod
     def decode_bm(cls, path: str) -> Tuple[int, int, bytes]:
         """Декодирует .bm файл.
+
+        ОГРАНИЧЕНИЕ (W2): .bm не хранит ширину/высоту в заголовке (в отличие
+        от .bmx), поэтому размер угадывается по длине payload среди известных
+        размеров. Если фактический размер не в списке — берётся ближайший
+        больший и при необходимости обрезается (только для превью).
 
         Returns:
             (width, height, preview_bytes) where preview_bytes has white=1, black=0
@@ -356,7 +359,7 @@ class FlipperBmBmxDecoder:
 
         pm = FlipperImageProcessor.bytes_to_preview(
             raw, width=w, height=h, scale=scale,
-            bitorder="big", invert_bits=False,
+            invert_bits=False,
         )
 
         return pm, w, h

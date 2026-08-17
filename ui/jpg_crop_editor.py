@@ -30,7 +30,7 @@ class CropPreviewWidget(QWidget):
         self,
         *,
         parent: QWidget | None = None,
-        empty_hint: str = "Загрузите JPG для превью",
+        empty_hint: str = "",
     ):
         super().__init__(parent)
 

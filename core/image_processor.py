@@ -16,13 +16,6 @@ class FlipperImageProcessor:
 
     """Обработчик изображений под спецификацию Flipper Zero."""
 
-    # В некоторых валидных bm/bmx (или конкретных пайплайнах экспорта) порядок бит внутри байта
-    # может быть инвертирован относительно numpy.pack/unpackbits.
-    # Включено для устранения «строчных/побитовых» артефактов на предпросмотре.
-    REVERSE_BITS_WITHIN_BYTE = False
-
-
-
     WIDTH = 128
 
     HEIGHT = 64
@@ -93,7 +86,11 @@ class FlipperImageProcessor:
         output_w: int | None = None,
         output_h: int | None = None,
     ) -> bytes:
-        """Упаковка 1-бит изображения в bytes Flipper (MSB-first, white=1) под output_w x output_h."""
+        """Упаковка 1-бит изображения в bytes Flipper (LSB-first, white=1) под output_w x output_h.
+
+        Формат совпадает с asset_packer.py (PIL XBM): каждая строка дополняется
+        до полного байта, первый пиксель строки — младший бит байта (LSB-first).
+        """
         w = cls.WIDTH if output_w is None else int(output_w)
         h = cls.HEIGHT if output_h is None else int(output_h)
 
@@ -101,26 +98,9 @@ class FlipperImageProcessor:
         arr = (arr > 0).astype(np.uint8)  # 0/1, white=1
 
         arr2 = arr.reshape(h, w)
-        packed = np.packbits(arr2, axis=1, bitorder="big")
+        packed = np.packbits(arr2, axis=1, bitorder="little")
         return packed.tobytes()
 
-
-    @classmethod
-    def pack_to_xbm_bytes(cls, img_1bit: Image.Image) -> bytes:
-        """Упаковка 1-бит изображения в XBM-формат как в asset_packer.py.
-
-        Формат как в convert_bm:
-        - Чёрный пиксель = 1, белый = 0
-        - MSB-first within byte (пиксель 0 = бит 7 байта 0)
-        - Scanlines packed: byte 0 = pixels 0-7, byte 1 = pixels 8-15, ...
-        """
-        arr = np.array(img_1bit, dtype=np.uint8)
-        # img_1bit: white=255/True, black=0/False
-        # XBM (через ImageOps.invert): black=1, white=0
-        arr = (arr == 0).astype(np.uint8)  # black(0/False) -> 1, white(255/True) -> 0
-        arr = arr.reshape(-1, cls.WIDTH)
-        packed = np.packbits(arr, axis=1, bitorder="big")
-        return packed.tobytes()
 
     @classmethod
     def bytes_to_preview(
@@ -130,40 +110,39 @@ class FlipperImageProcessor:
         height: int | None = None,
         scale: int = 3,
         *,
-        bitorder: str = "big",
+        bitorder: str = "little",
         invert_bits: bool = False,
     ) -> QPixmap:
 
         """Конвертация сырых байтов Flipper → QPixmap для GUI.
 
         Для произвольных width/height нужно, чтобы в data были байты/битсет под эту сетку.
+        bitorder по умолчанию "little" — формат Flipper/asset_packer (PIL XBM).
         """
         w = cls.WIDTH if width is None else int(width)
         h = cls.HEIGHT if height is None else int(height)
 
+        # Формат Flipper/asset_packer (PIL XBM): упаковка ПО-СТРОЧНО, каждая
+        # строка дополняется до полного байта, биты внутри байта — LSB-first.
+        # Для 46x49 это критично: иначе получались «вертикальные полосы».
+        row_bytes = (w + 7) // 8
+        expected_bytes = row_bytes * h
+
         raw = np.frombuffer(data, dtype=np.uint8)
-        bits = np.unpackbits(raw, bitorder=bitorder)
+        if raw.size < expected_bytes:
+            raw = np.concatenate([raw, np.zeros(expected_bytes - raw.size, dtype=raw.dtype)])
+        elif raw.size > expected_bytes:
+            raw = raw[:expected_bytes]
+
+        bits = np.unpackbits(raw.reshape(h, row_bytes), axis=1, bitorder=bitorder)[:, :w]
         if invert_bits:
             bits = 1 - bits
 
-        # Часто у Flipper packed-битов встречается реверс внутри каждого байта.
-        # При «горизонтальных» артефактах это может быть единственной верной правкой.
-        if getattr(cls, "REVERSE_BITS_WITHIN_BYTE", False):
-            bits = bits.reshape(-1, 8)[:, ::-1].reshape(-1)
-
-        expected_bits = h * w
-
-        # Не всегда декодер может получить ровно expected_bits (встречаются несовпадения формата/паддинга).
-        # Обрезаем/дополняем до expected_bits.
-        if bits.size < expected_bits:
-            pad = expected_bits - bits.size
-            bits = np.concatenate([bits, np.zeros(pad, dtype=bits.dtype)])
-
-        bits = bits[:expected_bits].reshape(h, w)
-
-
         img_bytes = (bits * 255).astype(np.uint8).tobytes()
-        qimg = QImage(img_bytes, w, h, QImage.Format.Format_Grayscale8)
+        # ВАЖНО: передаём явный bytesPerLine = w, чтобы Qt не дополнял каждую
+        # строку до кратного 4 (у ширины 46 -> 48), иначе строки «поедут»
+        # и в превью окажутся полосы/сдвиг (артефакт был для 46x49).
+        qimg = QImage(img_bytes, w, h, w, QImage.Format.Format_Grayscale8)
 
         # Строго в размер: без KeepAspectRatio, чтобы не терялись края.
         return QPixmap.fromImage(qimg).scaled(
@@ -180,7 +159,7 @@ class FlipperImageProcessor:
         width: int | None = None,
         height: int | None = None,
     ) -> bytes:
-        """Упаковка матрицы 0/1 в bytes Flipper (MSB-first, white=1) для произвольных w/h."""
+        """Упаковка матрицы 0/1 в bytes Flipper (LSB-first, white=1) для произвольных w/h."""
         w = cls.WIDTH if width is None else int(width)
         h = cls.HEIGHT if height is None else int(height)
 
@@ -189,47 +168,45 @@ class FlipperImageProcessor:
             raise ValueError(f"Invalid pixels shape: expected {(h, w)}, got {arr.shape}")
 
         arr = (arr > 0).astype(np.uint8)
-        packed = np.packbits(arr, axis=1, bitorder="big")
+        packed = np.packbits(arr, axis=1, bitorder="little")
         return packed.tobytes()
 
     @classmethod
-    def pack_pixels_to_xbm_bytes(
+    def _png_to_bytes(
         cls,
-        pixels: "NDArray[np.uint8] | NDArray[np.bool_] | list[list[int]]",
-        width: int | None = None,
-        height: int | None = None,
+        img: Image.Image,
+        dither_level: int,
+        output_w: int | None,
+        output_h: int | None,
     ) -> bytes:
-        """Упаковка матрицы 0/1 в XBM-формат (black=1, white=0, MSB-first) для произвольных w/h."""
-        w = cls.WIDTH if width is None else int(width)
-        h = cls.HEIGHT if height is None else int(height)
-
-        arr = np.array(pixels, dtype=np.uint8)
-        if arr.shape != (h, w):
-            raise ValueError(f"Invalid pixels shape: expected {(h, w)}, got {arr.shape}")
-
-        # XBM: 1 = black (pixel value 0), 0 = white (pixel value 1)
-        arr = (arr == 0).astype(np.uint8)
-        packed = np.packbits(arr, axis=1, bitorder="big")
-        return packed.tobytes()
+        img_1bit = cls.preprocess(
+            img,
+            dither_level=dither_level,
+            output_w=output_w,
+            output_h=output_h,
+        )
+        return cls.pack_to_flipper_bytes(
+            img_1bit,
+            output_w=output_w,
+            output_h=output_h,
+        )
 
     @classmethod
-    def pack_pixels_to_flipper(
+    def process_png_to_bytes(
         cls,
-        pixels: "NDArray[np.uint8] | NDArray[np.bool_] | list[list[int]]",
-        width: int | None = None,
-        height: int | None = None,
-        scale: int = 3,
-    ) -> Dict[str, Any]:
-        w = cls.WIDTH if width is None else int(width)
-        h = cls.HEIGHT if height is None else int(height)
-        raw_bytes = cls.pack_pixels_to_flipper_bytes(pixels, width=w, height=h)
-        preview = cls.bytes_to_preview(raw_bytes, width=w, height=h, scale=scale)
-        return {
-            "processed_size": (w, h),
-            "byte_length": len(raw_bytes),
-            "bytes": raw_bytes,
-            "preview": preview,
-        }
+        path: str,
+        dither_level: int = 1,
+        *,
+        output_w: int | None = None,
+        output_h: int | None = None,
+    ) -> bytes:
+        """Обработка PNG → Flipper bytes БЕЗ создания QPixmap.
+
+        Безопасно вызывать из фонового потока (нет Qt GUI-объектов) — A2.
+        """
+        return cls._png_to_bytes(
+            cls.load_and_validate(path), int(dither_level), output_w, output_h
+        )
 
     @classmethod
     def process_png(
@@ -241,18 +218,7 @@ class FlipperImageProcessor:
         output_h: int | None = None,
     ) -> Dict[str, Any]:
         img = cls.load_and_validate(path)
-        img_1bit = cls.preprocess(
-            img,
-            dither_level=dither_level,
-            output_w=output_w,
-            output_h=output_h,
-        )
-
-        raw_bytes = cls.pack_to_flipper_bytes(
-            img_1bit,
-            output_w=output_w,
-            output_h=output_h,
-        )
+        raw_bytes = cls._png_to_bytes(img, int(dither_level), output_w, output_h)
 
         w = cls.WIDTH if output_w is None else int(output_w)
         h = cls.HEIGHT if output_h is None else int(output_h)
@@ -273,16 +239,6 @@ class FlipperImageProcessor:
     @classmethod
     def _load_image_any(cls, path: str) -> Image.Image:
         p = Path(path)
-        if not p.exists():
-            raise FileNotFoundError(f"File not found: {path}")
-
-        try:
-            img = Image.open(p)
-            if img.width == 0 or img.height == 0:
-                raise ValueError("Image has zero size")
-            return img.convert("RGBA")
-        except Exception as e:
-            raise RuntimeError(f"Failed to load image: {e}") from e
         if not p.exists():
             raise FileNotFoundError(f"File not found: {path}")
 
@@ -343,28 +299,6 @@ class FlipperImageProcessor:
         offset_y = (output_h - new_h) // 2
         canvas.paste(resized, (offset_x, offset_y))
         return canvas
-
-    @classmethod
-    def preview_crop(
-        cls,
-        input_path: str,
-        output_w: int,
-        output_h: int,
-        *,
-        mode: str = "center_crop",
-        scale: int = 3,
-    ) -> QPixmap:
-        img = cls._load_image_any(input_path)
-        out_img = cls._crop_and_resize_to_target(img, output_w, output_h, mode=mode)
-
-        qimg = QImage(out_img.tobytes("raw", "RGBA"), out_img.size[0], out_img.size[1], QImage.Format.Format_RGBA8888)
-        pm = QPixmap.fromImage(qimg)
-        return pm.scaled(
-            int(output_w) * scale,
-            int(output_h) * scale,
-            Qt.AspectRatioMode.IgnoreAspectRatio,
-            Qt.TransformationMode.FastTransformation,
-        )
 
     @classmethod
     def export_jpg_custom_crop_to_png(

@@ -95,22 +95,24 @@ class FlipperExporter:
         height: int,
         compress: bool = True,
     ) -> bytes:
-        """Создаёт .bm из голых packed-байтов (white=1, MSB-first).
+        """Создаёт .bm из голых packed-байтов (white=1, LSB-first).
 
-        Важно для нестандартных размеров (например 46x49):
-        тут не используем PIL->XBM->bytes, т.к. на неполных байтах возможны расхождения
-        в битовом порядке/упаковке. Вместо этого строим XBM bytes напрямую.
+        Важно для нестандартных размеров (например 46x49): упаковка по-строчная,
+        каждая строка дополняется до полного байта, биты внутри байта — LSB-first
+        (как PIL XBM в asset_packer.py).
 
         Требования:
-        - raw_1bit_bytes: битовая сетка Flipper (MSB-first внутри байта), white=1, black=0
-        - XBM для asset_packer: black=1, white=0, MSB-first внутри байта
+        - raw_1bit_bytes: битовая сетка Flipper (LSB-first внутри байта), white=1, black=0
+        - XBM для asset_packer: black=1, white=0, LSB-first внутри байта
         """
         import numpy as np
 
         w = int(width)
         h = int(height)
-        expected_bits = w * h
-        expected_bytes = (expected_bits + 7) // 8
+        # Формат XBM/asset_packer: по-строчная упаковка, каждая строка
+        # дополняется до полного байта. Для 46x49 -> 6 байт на строку.
+        row_bytes = (w + 7) // 8
+        expected_bytes = row_bytes * h
 
         # Приводим вход к нужному размеру (байтов).
         buf = bytes(raw_1bit_bytes)
@@ -119,30 +121,15 @@ class FlipperExporter:
         elif len(buf) > expected_bytes:
             buf = buf[:expected_bytes]
 
-        # raw_1bit_bytes приходит как flipper packed (white=1, black=0, MSB-first).
-        # Для генерации .bm/Momentum нам нужен XBM-представление (black=1, white=0).
-        # Чтобы не получить артефакты «полосами» на 128x64, делаем инверсию на уровне байтов
-        # через xbm packing-путь asset_packer.py (через PIL->XBM) — это даёт идентичный битовый поток.
-        #
-        # Мы можем реконструировать 1-bit PIL из packed bits для точности, но проще и надёжнее:
-        # используем decodер-логику: распаковываем в биты строго под (h,w), инвертируем смысл и обратно.
-        # Для 128x64 это безопасно, т.к. expected_bits кратно 8.
-        import numpy as np
-        arr = np.frombuffer(buf, dtype=np.uint8)
-        bits = np.unpackbits(arr, bitorder="big")[:expected_bits]
+        # raw_1bit_bytes приходит как flipper packed (white=1) по-строчно, LSB-first.
+        # Для .bm/Momentum нужен XBM-представление (black=1), тот же по-строчный
+        # LSB-first порядок — это канонический формат asset_packer.py (PIL XBM),
+        # единообразно для 128x64 и 46x49.
+        arr = np.frombuffer(buf, dtype=np.uint8).reshape(h, row_bytes)
+        bits = np.unpackbits(arr, axis=1, bitorder="little")[:, :w]
         bits = 1 - bits  # white(1)->black(1)
 
-        # Для Momentum .bm на 128x64 требуется реверс битов внутри байта.
-        # Это исправляет артефакты вида "вертикальные полосы" / перестановку кусков.
-        if w == 128 and h == 64:
-            bits = bits.reshape(-1, 8)[:, ::-1].reshape(-1)
-
-        xbm_bytes = np.packbits(bits, bitorder="big").tobytes()
-
-        # Важно: для 128x64 expected_bits кратно 8, поэтому проблем с хвостом нет.
-        # Артефакты типа «полосами» обычно появляются из-за рассинхрона на границах,
-        # а здесь распаковка/упаковка работает корректно.
-
+        xbm_bytes = np.packbits(bits, axis=1, bitorder="little").tobytes()
 
         return FlipperExporter._xbm_bytes_to_bm(xbm_bytes, compress=compress)
 
@@ -175,7 +162,19 @@ class FlipperExporter:
         output_dir: Union[str, Path],
         compressed: bool = True,
         create_zip: bool = False,
+        *,
+        manifest_in_anim_dir: bool = True,
     ) -> Path:
+        """Экспорт анимации в стандартную структуру Momentum.
+
+        ВАЖНО (B2): кадры анимации в Momentum всегда пакуются через convert_bm
+        (heatshrink, flag=0x01), поэтому `compressed=True` лишь выбирает
+        расширение-контейнер: `compressed=False` -> .bm (convert_bm со сжатием),
+        `compressed=True` -> .bmx. Управление самим heatshrink тут не требуется.
+
+        manifest_in_anim_dir=False: не писать manifest.txt внутрь папки анимации
+        (UI кладёт его в корень Anims/).
+        """
         out = Path(output_dir)
         anim_dir = out / anim_name
         anim_dir.mkdir(parents=True, exist_ok=True)
@@ -186,25 +185,23 @@ class FlipperExporter:
         ext = "bmx" if compressed else "bm"
         for i, frame_data in enumerate(frames):
             frame_path = anim_dir / f"frame_{i}.{ext}"
+            # Оба контейнера используют convert_bm с heatshrink (см. докстринг выше).
+            bm = cls._make_bm_from_bytes(
+                raw_1bit_bytes=frame_data,
+                width=width,
+                height=height,
+                compress=True,
+            )
             if compressed:
-                bmx = cls._make_bmx_from_bytes(
-                    raw_1bit_bytes=frame_data,
-                    width=width,
-                    height=height,
-                    compress=True,
-                )
-                frame_path.write_bytes(bmx)
+                # .bmx контейнер: [width: 4B LE][height: 4B LE] + convert_bm output
+                payload = struct.pack("<II", width, height) + bm
+                frame_path.write_bytes(payload)
             else:
-                bm = cls._make_bm_from_bytes(
-                    raw_1bit_bytes=frame_data,
-                    width=width,
-                    height=height,
-                    compress=True,
-                )
                 frame_path.write_bytes(bm)
 
         (anim_dir / "meta.txt").write_text(meta_txt, encoding="utf-8")
-        (anim_dir / "manifest.txt").write_text(manifest_txt, encoding="utf-8")
+        if manifest_in_anim_dir:
+            (anim_dir / "manifest.txt").write_text(manifest_txt, encoding="utf-8")
 
         if create_zip:
             zip_path = out / f"{anim_name}_pack.zip"

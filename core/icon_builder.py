@@ -1,5 +1,4 @@
 import struct
-import traceback
 from pathlib import Path
 from typing import List
 from core.image_processor import FlipperImageProcessor
@@ -51,16 +50,8 @@ class FlipperIconBuilder:
         """
 
         # output_folder обязан быть путём (Path/str), а не результатом process_png.
-        # Если снаружи прилетает dict — это обычно ошибка прокидывания аргументов.
+        # Если снаружи прилетает dict — это ошибка прокидывания аргументов.
         if isinstance(output_folder, dict):
-            # Логируем контекст, чтобы точно понять откуда прилетает dict
-            print("[FlipperIconBuilder.export_icon] output_folder is dict")
-            print("type:", type(output_folder))
-            try:
-                print("keys:", list(output_folder.keys()))
-            except Exception:
-                pass
-            print("stack:\n" + "".join(traceback.format_stack(limit=25)))
             raise TypeError(
                 "export_icon: output_folder должен быть Path/str (например Path(out_dir)/'Icons'/app_name), "
                 "а не dict"

@@ -11,7 +11,7 @@ class DragDropArea(QWidget):
     
     files_dropped = pyqtSignal(list)  # Сигнал с списком путей файлов
     
-    def __init__(self, title: str = "Перетащите PNG файлы сюда", accepted_extensions=None):
+    def __init__(self, title: str = "", accepted_extensions=None):
         super().__init__()
         self.accepted_extensions = accepted_extensions or [".png"]
         self._default_text = title

@@ -3,8 +3,10 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QProgressBar, QGroupBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
+from collections import Counter
 from pathlib import Path
 from core.validator import FlipperAssetPackValidator, ValidationLevel
+from ui.background import BackgroundRunner
 from ui.i18n import tr, trf
 
 class ValidatorWidget(QWidget):
@@ -16,6 +18,8 @@ class ValidatorWidget(QWidget):
         super().__init__()
         self.validator = FlipperAssetPackValidator()
         self._pack_path_selected = False
+        self._validating = False
+        self._bg = BackgroundRunner(self)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -106,26 +110,36 @@ class ValidatorWidget(QWidget):
             self.lbl_stats.setText(tr("val.stats_default"))
 
     def _validate_pack(self):
-        """Запуск валидации"""
-        if not hasattr(self, 'current_pack_path'):
+        """Запуск валидации в фоновом потоке (UI не блокируется)."""
+        if self._validating or not hasattr(self, 'current_pack_path'):
             return
 
+        self._validating = True
+        self.btn_validate.setEnabled(False)
         self.progress.setVisible(True)
-        self.progress.setRange(0, 0)  # Бесконечная анимация
+        self.progress.setRange(0, 0)  # busy-индикатор (теперь UI свободен)
         self.results_list.clear()
-        
-        # Запуск валидации
-        results = self.validator.validate_pack(self.current_pack_path)
-        
+        self.lbl_stats.setText(tr("val.stats_default"))
+
+        self._bg.run(
+            self.validator.validate_pack,
+            on_done=self._on_validation_done,
+            on_error=self._on_validation_error,
+            args=(self.current_pack_path,),
+        )
+
+    def _on_validation_done(self, results: list):
+        """Обработка результата валидации (вызывается в UI-потоке)."""
+        self._validating = False
+        self.btn_validate.setEnabled(True)
         self.progress.setRange(0, 100)
         self.progress.setValue(100)
-        
-        # Отображение результатов
+
+        total = len(results)
         for i, result in enumerate(results):
             item = QListWidgetItem(self._format_result(result))
             item.setData(Qt.ItemDataRole.UserRole, result)
-            
-            # Цвет в зависимости от уровня
+
             if result.level == ValidationLevel.ERROR:
                 item.setForeground(QColor("#ff4444"))
                 item.setBackground(QColor("#3a0000"))
@@ -137,14 +151,12 @@ class ValidatorWidget(QWidget):
                 item.setBackground(QColor("#003a00"))
             else:
                 item.setForeground(QColor("#888888"))
-            
-            self.results_list.addItem(item)
-            
-            # Анимация появления
-            self.progress.setValue(int((i + 1) / len(results) * 100))
 
-        # Статистика
-        summary = self.validator.get_summary()
+            self.results_list.addItem(item)
+            if total:
+                self.progress.setValue(int((i + 1) / total * 100))
+
+        summary = Counter(r.level.value for r in results)
         stats_text = trf(
             "val.stats",
             total=sum(summary.values()),
@@ -154,12 +166,21 @@ class ValidatorWidget(QWidget):
             error=summary['error'],
         )
         self.lbl_stats.setText(stats_text)
-        
-        # Определение общего результата
+
         has_errors = summary['error'] > 0
         self.pack_validated.emit(not has_errors)
-        
         self.progress.setVisible(False)
+
+    def _on_validation_error(self, message: str):
+        """Ошибка выполнения валидации (вызывается в UI-потоке)."""
+        self._validating = False
+        self.btn_validate.setEnabled(True)
+        self.progress.setVisible(False)
+        item = QListWidgetItem(f"❌ {message}")
+        item.setForeground(QColor("#ff4444"))
+        item.setBackground(QColor("#3a0000"))
+        self.results_list.addItem(item)
+        self.lbl_stats.setText(tr("val.stats_default"))
 
     def _format_result(self, result) -> str:
         """Форматирование строки результата"""

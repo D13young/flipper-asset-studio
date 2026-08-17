@@ -24,6 +24,36 @@ class FlipperAnimationManager:
         })
         self.meta_params["passive_frames"] = len(self.frames)
 
+    def add_frame_bytes(self, png_path: str, flipper_bytes: bytes, dither_level: int = 1):
+        """Добавить кадр с уже посчитанными bytes.
+
+        Превью строится позже (в UI-потоке), т.к. QPixmap нельзя создавать
+        в фоновом потоке. Используется асинхронным импортом кадров (A2).
+        """
+        self.frames.append({
+            "path": png_path,
+            "bytes": flipper_bytes,
+            "preview": None,
+            "dither_level": int(dither_level),
+        })
+        self.meta_params["passive_frames"] = len(self.frames)
+
+    def reprocess_frames_to_bytes(self, dither_level: int):
+        """Пересчитать bytes для всех кадров (БЕЗ QPixmap).
+
+        Возвращает список (path, bytes) для применения в UI-потоке. A2.
+        """
+        dither_level = int(dither_level)
+        out = []
+        for f in self.frames:
+            p = f.get("path")
+            if not p:
+                continue
+            out.append(
+                (p, FlipperImageProcessor.process_png_to_bytes(p, dither_level=dither_level))
+            )
+        return out
+
     def reprocess_frames(self, dither_level: int):
         """Пересчитать bytes/preview для всех текущих кадров с новым dither_level."""
         dither_level = int(dither_level)

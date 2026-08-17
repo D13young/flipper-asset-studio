@@ -1,0 +1,1 @@
+"""Пакет юнит-тестов Flipper Asset Studio."""

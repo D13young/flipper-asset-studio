@@ -1,14 +1,9 @@
 import sys
-import os
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QCoreApplication, Qt
 from ui.main_window import MainWindow
 
 def main():
-    if hasattr(Qt, "AA_EnableHighDpiScaling"):
-        QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
-    else:
-        pass
+    # HighDPIAttributes в PyQt6 включены по умолчанию и недоступны как атрибуты Qt.
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setApplicationName("Flipper Asset Studio")

@@ -11,11 +11,14 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QLineEdit,
     QFileDialog,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from core.animation_manager import FlipperAnimationManager
+from core.image_processor import FlipperImageProcessor
 from ui.drag_drop_widget import DragDropArea
+from ui.background import BackgroundRunner
 from ui.i18n import tr, trf
 
 class AnimationTimelineWidget(QWidget):
@@ -25,6 +28,8 @@ class AnimationTimelineWidget(QWidget):
     def __init__(self, manager: FlipperAnimationManager):
         super().__init__()
         self.manager = manager
+        self._bg = BackgroundRunner(self)
+        self._reprocess_gen = 0  # защита от устаревших результатов репроцесса
         self._setup_ui()
         self._connect_signals()
 
@@ -148,7 +153,6 @@ class AnimationTimelineWidget(QWidget):
         self.btn_down.clicked.connect(lambda: self._move_frame(1))
         self.btn_remove.clicked.connect(self._remove_frame)
         self.btn_clear.clicked.connect(self._clear_frames)
-        self.frame_list.currentRowChanged.connect(self._on_selection_changed)
 
         for widget in [self.spin_fps, self.spin_duration, self.spin_bh_min, self.spin_bh_max,
                        self.spin_lv_min, self.spin_lv_max, self.spin_weight]:
@@ -159,23 +163,48 @@ class AnimationTimelineWidget(QWidget):
         # QLineEdit меняется через textChanged
         self.line_name.textChanged.connect(self._emit_meta)
 
-    def _on_frames_dropped(self, paths: list):
+    def import_paths(self, paths):
+        """Асинхронный импорт кадров: обработка PNG — в фоновом потоке (A2)."""
+        paths = [p for p in paths if p]
         if not paths:
             return
         dither_level = int(self.spin_dither_level.value())
-        for p in sorted(paths):
-            self.manager.add_frame(p, dither_level=dither_level)
+        self._bg.run(
+            self._process_paths_to_bytes,
+            on_done=self._apply_processed_frames,
+            on_error=self._on_process_error,
+            args=(sorted(paths), dither_level),
+        )
+
+    @staticmethod
+    def _process_paths_to_bytes(paths, dither_level):
+        """Обработка PNG без QPixmap — безопасно для фонового потока."""
+        return [
+            (p, FlipperImageProcessor.process_png_to_bytes(p, dither_level=dither_level))
+            for p in paths
+        ]
+
+    def _apply_processed_frames(self, pairs):
+        """Применяет результат импорта в UI-потоке (QPixmap создаём здесь)."""
+        for path, fb in pairs:
+            self.manager.add_frame_bytes(
+                path, fb, dither_level=int(self.spin_dither_level.value())
+            )
+            self.manager.frames[-1]["preview"] = FlipperImageProcessor.bytes_to_preview(fb)
         self._refresh_list()
         self._emit_updates()
 
+    def _on_process_error(self, message):
+        QMessageBox.warning(self, tr("dlg.error"), message)
+
+    def _on_frames_dropped(self, paths: list):
+        self.import_paths(paths)
+
     def _add_frames(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, tr("anim.select_frames"), "", "PNG Images (*.png)")
-        if paths:
-            dither_level = int(self.spin_dither_level.value())
-            for p in sorted(paths):
-                self.manager.add_frame(p, dither_level=dither_level)
-            self._refresh_list()
-            self._emit_updates()
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, tr("anim.select_frames"), "", "PNG Images (*.png)"
+        )
+        self.import_paths(paths)
 
     def _move_frame(self, direction):
         curr = self.frame_list.currentRow()
@@ -215,20 +244,40 @@ class AnimationTimelineWidget(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, i)
             self.frame_list.addItem(item)
 
-    def _on_selection_changed(self, row):
-        pass
-
     def _emit_updates(self):
         self.frames_updated.emit(self.manager.get_frame_bytes_list())
         self._emit_meta()
 
     def _on_dither_level_changed(self):
-        # Пересчёт текущих кадров, чтобы превью менялось сразу.
+        # Пересчёт кадров в фоновом потоке; превью строится в UI-потоке (A2).
+        if not self.manager.frames:
+            return
         dither_level = int(self.spin_dither_level.value())
-        if self.manager.frames:
-            self.manager.reprocess_frames(dither_level)
-            self._refresh_list()
-            self._emit_updates()
+        self._reprocess_gen += 1
+        gen = self._reprocess_gen
+
+        def _done(pairs):
+            # Применяем только результат последнего запроса (защита от гонки).
+            if gen == self._reprocess_gen:
+                self._apply_reprocessed_frames(pairs)
+
+        self._bg.run(
+            self.manager.reprocess_frames_to_bytes,
+            on_done=_done,
+            on_error=self._on_process_error,
+            args=(dither_level,),
+        )
+
+    def _apply_reprocessed_frames(self, pairs):
+        dither_level = int(self.spin_dither_level.value())
+        for path, fb in pairs:
+            for f in self.manager.frames:
+                if f.get("path") == path:
+                    f["bytes"] = fb
+                    f["dither_level"] = dither_level
+                    f["preview"] = FlipperImageProcessor.bytes_to_preview(fb)
+        self._refresh_list()
+        self._emit_updates()
 
     def _emit_meta(self):
 
