@@ -8,9 +8,13 @@ from ui.i18n import trf, tr
 
 class DragDropArea(QWidget):
     """Область для Drag-and-Drop импорта файлов"""
-    
+
     files_dropped = pyqtSignal(list)  # Сигнал с списком путей файлов
-    
+
+    # Имя объекта используется селектором в глобальной теме
+    # (ui/styles.py -> QLabel#dragDropLabel), чтобы цвета следовали теме (A4).
+    LABEL_OBJECT_NAME = "dragDropLabel"
+
     def __init__(self, title: str = "", accepted_extensions=None):
         super().__init__()
         self.accepted_extensions = accepted_extensions or [".png"]
@@ -26,29 +30,34 @@ class DragDropArea(QWidget):
     def _setup_ui(self, title: str):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
         self.label = QLabel(title)
+        self.label.setObjectName(self.LABEL_OBJECT_NAME)
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label.setStyleSheet("""
-            QLabel {
-                background-color: #1a1a2e;
-                border: 3px dashed #4a4a6a;
-                border-radius: 10px;
-                padding: 40px;
-                color: #888;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QLabel:hover {
-                background-color: #252545;
-                border-color: #6a6a9a;
-                color: #aaa;
-            }
-        """)
         self.label.setMinimumSize(200, 100)
-        
+
         layout.addWidget(self.label)
         self.setLayout(layout)
+
+    def _set_state(self, state: str):
+        """Переключает динамическое свойство 'state' для перекраски из темы.
+
+        Явного setStyleSheet здесь нет (A4): фон/граница/цвет берутся из
+        активной темы селектором QLabel#dragDropLabel[state=...]. Чтобы Qt
+        перерисовал виджет при смене свойства, нужен unpolish/polish.
+        """
+        current = self.label.property("state") or ""
+        if current == state:
+            return
+        self.label.setProperty("state", state or None)
+        style = self.label.style()
+        style.unpolish(self.label)
+        style.polish(self.label)
+
+    def _reset_state(self):
+        """Возврат к обычному виду (снятие drag/active) и тексту по умолчанию."""
+        self._set_state("")
+        self.label.setText(self._default_text)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Событие при перетаскивании файла над областью"""
@@ -56,23 +65,13 @@ class DragDropArea(QWidget):
             # Проверяем, есть ли подходящие файлы
             urls = event.mimeData().urls()
             valid_files = [
-                url.toLocalFile() for url in urls 
+                url.toLocalFile() for url in urls
                 if Path(url.toLocalFile()).suffix.lower() in self.accepted_extensions
             ]
-            
+
             if valid_files:
                 event.acceptProposedAction()
-                self.label.setStyleSheet("""
-                    QLabel {
-                        background-color: #2a2a4e;
-                        border: 3px dashed #00ff00;
-                        border-radius: 10px;
-                        padding: 40px;
-                        color: #00ff00;
-                        font-size: 18px;
-                        font-weight: bold;
-                    }
-                """)
+                self._set_state("drag")
             else:
                 event.ignore()
         else:
@@ -80,59 +79,36 @@ class DragDropArea(QWidget):
 
     def dragLeaveEvent(self, event):
         """Событие при уходе файла с области"""
-        self._reset_style()
+        self._reset_state()
 
     def dropEvent(self, event: QDropEvent):
         """Событие при отпускании файлов"""
-        self._reset_style()
-        
+        self._reset_state()
+
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
             dropped_files = []
-            
+
             for url in urls:
                 file_path = url.toLocalFile()
                 if Path(file_path).suffix.lower() in self.accepted_extensions:
                     dropped_files.append(file_path)
-            
+
             if dropped_files:
                 self.files_dropped.emit(dropped_files)
                 self.label.setText(trf("drag.loaded", count=len(dropped_files)))
             else:
                 QMessageBox.warning(
-                    self, 
-                    tr("drag.wrong_format_title"), 
+                    self,
+                    tr("drag.wrong_format_title"),
                     trf("drag.wrong_format_msg", exts=", ".join(self.accepted_extensions))
                 )
         else:
             event.ignore()
 
-    def _reset_style(self):
-        """Сброс стиля к исходному"""
-        self.label.setStyleSheet("""
-            QLabel {
-                background-color: #1a1a2e;
-                border: 3px dashed #4a4a6a;
-                border-radius: 10px;
-                padding: 40px;
-                color: #888;
-                font-size: 16px;
-                font-weight: bold;
-            }
-        """)
-        self.label.setText(self._default_text)
-
     def set_active(self, active: bool):
         """Визуальная индикация активности"""
         if active:
-            self.label.setStyleSheet("""
-                QLabel {
-                    background-color: #1a3a1a;
-                    border: 3px solid #00ff00;
-                    border-radius: 10px;
-                    padding: 40px;
-                    color: #00ff00;
-                }
-            """)
+            self._set_state("active")
         else:
-            self._reset_style()
+            self._reset_state()

@@ -46,7 +46,7 @@ class FlipperIconBuilder:
         Если 1 кадр -> просто сохраняет файл (icon.bm или icon.bmx).
         Если >1 кадра -> создаёт папку с кадрами и бинарный meta.
 
-        frames_bytes: список packed bytes (white=1, MSB-first)
+        frames_bytes: список packed bytes (white=1, LSB-first, по-строчно)
         """
 
         # output_folder обязан быть путём (Path/str), а не результатом process_png.
@@ -99,12 +99,8 @@ class FlipperIconBuilder:
                 # asset_packer convert_bm делает heatshrink поверх XBM bytes
                 bm_data = FlipperExporter._xbm_bytes_to_bm(xbm_bytes, compress=True)
                 if compress:
-                    # .bmx контейнер: header(<II) + convert_bm_output
-                    bmx_data = FlipperExporter._make_bmx_from_image(img_inv, compress=True)
-                    # но _make_bmx_from_image использует size PNG, а у нас надо ровно width/height
-                    # Поэтому перегенерим контейнер из bm_data напрямую
-                    import struct as _struct
-                    bmx_data = _struct.pack("<II", width, height) + bm_data
+                    # .bmx контейнер: header(<II) + convert_bm output
+                    bmx_data = struct.pack("<II", width, height) + bm_data
                     file_path.write_bytes(bmx_data)
                 else:
                     file_path.write_bytes(bm_data)

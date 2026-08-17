@@ -1,4 +1,5 @@
 import os
+import struct
 from pathlib import Path
 from typing import List, Dict, Tuple
 from dataclasses import dataclass
@@ -249,7 +250,6 @@ class FlipperAssetPackValidator:
                     ))
                     
                     # Чтение meta
-                    import struct
                     meta_data = meta_file.read_bytes()
                     width, height, fps, count = struct.unpack("<HHBB", meta_data)
                     

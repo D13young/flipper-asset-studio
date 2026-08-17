@@ -9,8 +9,10 @@ try:
     import heatshrink2
     HEATSHRINK_AVAILABLE = True
 except ImportError:
+    heatshrink2 = None
     HEATSHRINK_AVAILABLE = False
-    print("⚠️ heatshrink2 не установлен. Сжатие .bm/.bmx будет пропущено.")
+    # Без print на импорте — тихо, как в bm_bmx_decoder (A3). Ошибка появится
+    # только при попытке реально сжать без установленного модуля.
 
 
 class FlipperExporter:
@@ -145,7 +147,7 @@ class FlipperExporter:
         height: int,
         compress: bool = True,
     ) -> bytes:
-        """Создаёт .bmx из голых packed-байтов (white=1, MSB-first)."""
+        """Создаёт .bmx из голых packed-байтов (white=1, LSB-first, по-строчно)."""
         bm_data = FlipperExporter._make_bm_from_bytes(
             raw_1bit_bytes, width, height, compress=compress
         )

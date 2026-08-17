@@ -364,29 +364,12 @@ class MainWindow(QMainWindow):
         self.lang_btn.setText(tr("tb.language"))
         tb.addWidget(self.lang_btn)
 
-    def _load_saved_theme(self) -> str:
-        saved = self.settings.value("ui/theme", DEFAULT_THEME)
-        return saved if saved in THEME_NAMES else DEFAULT_THEME
-
-    def _save_theme(self, name: str) -> None:
-        self.settings.setValue("ui/theme", name)
-
     def _load_saved_language(self) -> str:
         saved = self.settings.value("ui/language", "ru")
         return saved if saved in LANGUAGES else "ru"
 
     def _save_language(self, lang: str) -> None:
         self.settings.setValue("ui/language", lang)
-
-    def _apply_theme(self, name: str) -> None:
-        if name not in THEME_NAMES:
-            name = DEFAULT_THEME
-        self.current_theme = name
-        self.setStyleSheet(load_qss(name))
-        self.theme_btn.setText(tr("tb.theme"))
-        for tname, action in self.theme_actions.items():
-            action.setChecked(tname == name)
-        self._save_theme(name)
 
     def _apply_language(self, lang: str) -> None:
         """Переключает язык интерфейса и переводит все тексты."""
@@ -657,13 +640,6 @@ class MainWindow(QMainWindow):
                         self.anim_timeline.import_paths(files)
 
 
-
-    def _import_png(self):
-        path, _ = QFileDialog.getOpenFileName(self, tr("dlg.select_png"), "", "PNG Images (*.png)")
-        if path:
-            self.current_asset_path = path
-            self.statusBar().showMessage(trf("status.loaded", name=os.path.basename(path)), 3000)
-            self._process_single()    
 
     # --- Логика Экспорта ---
 

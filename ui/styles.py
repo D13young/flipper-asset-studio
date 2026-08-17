@@ -334,6 +334,34 @@ QLabel {{
     color: {C["text"]};
 }}
 
+/* Drag-and-drop область (a4): цвета берутся из активной темы.
+   Состояния переключаются динамическим свойством "state" (drag/active). */
+QLabel#dragDropLabel {{
+    background-color: {C["surface"]};
+    border: 3px dashed {C["overlay"]};
+    border-radius: 10px;
+    padding: 40px;
+    color: {C["subtext"]};
+    font-size: 16px;
+    font-weight: bold;
+}}
+
+QLabel#dragDropLabel:hover {{
+    background-color: {C["overlay"]};
+    border-color: {C["blue"]};
+    color: {C["text"]};
+}}
+
+QLabel#dragDropLabel[state="drag"],
+QLabel#dragDropLabel[state="active"] {{
+    border: 3px dashed {C["green"]};
+    color: {C["green"]};
+}}
+
+QLabel#dragDropLabel[state="active"] {{
+    background-color: {C["surface"]};
+}}
+
 QTextEdit {{
     background-color: {C["surface"]};
     border: 1px solid {C["overlay"]};
