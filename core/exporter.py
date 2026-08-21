@@ -169,13 +169,6 @@ class FlipperExporter:
     ) -> Path:
         """Экспорт анимации в стандартную структуру Momentum.
 
-        ВАЖНО (B2): кадры анимации в Momentum всегда пакуются через convert_bm
-        (heatshrink, flag=0x01), поэтому `compressed=True` лишь выбирает
-        расширение-контейнер: `compressed=False` -> .bm (convert_bm со сжатием),
-        `compressed=True` -> .bmx. Управление самим heatshrink тут не требуется.
-
-        manifest_in_anim_dir=False: не писать manifest.txt внутрь папки анимации
-        (UI кладёт его в корень Anims/).
         """
         out = Path(output_dir)
         anim_dir = out / anim_name
@@ -187,7 +180,6 @@ class FlipperExporter:
         ext = "bmx" if compressed else "bm"
         for i, frame_data in enumerate(frames):
             frame_path = anim_dir / f"frame_{i}.{ext}"
-            # Оба контейнера используют convert_bm с heatshrink (см. докстринг выше).
             bm = cls._make_bm_from_bytes(
                 raw_1bit_bytes=frame_data,
                 width=width,

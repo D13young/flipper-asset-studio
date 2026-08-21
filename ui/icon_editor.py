@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QComboBox,
     QToolButton,
+    QSplitter,
 )
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
@@ -26,8 +27,6 @@ from ui.i18n import tr
 
 
 class IconEditorWidget(QWidget):
-    # Сигнал для передачи готовых данных в главный экспорт
-    # app_name, frames_bytes, w, h, dither_level
     icon_ready = pyqtSignal(str, list, int, int, int)
 
     def __init__(self):
@@ -75,12 +74,25 @@ class IconEditorWidget(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        # ── Левая колонка: настройки + статус ──
+        left_panel = QWidget()
+        left_panel.setMinimumWidth(240)
+        left_panel.setMaximumWidth(330)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(10)
 
         # Настройки иконки
         self.settings_group = QGroupBox(tr("icon.group_settings"))
 
-        self.settings_layout = QFormLayout()
+        self.settings_layout = QFormLayout(self.settings_group)
+        self.settings_layout.setVerticalSpacing(8)
 
         self.app_name_edit = QLineEdit("passport")
         self.app_name_edit.setEnabled(False)
@@ -107,23 +119,45 @@ class IconEditorWidget(QWidget):
         self.settings_layout.addRow(tr("icon.lbl_app_name"), self.app_name_edit)
         self.settings_layout.addRow(tr("icon.lbl_passport_file"), self.passport_kind_cb)
         self.settings_layout.addRow(tr("icon.lbl_dither_level"), self.dither_cb)
-        self.settings_group.setLayout(self.settings_layout)
-        layout.addWidget(self.settings_group)
+        left_layout.addWidget(self.settings_group)
+
+        left_layout.addStretch(1)
+
+        # Инфо
+        self.lbl_status = QLabel("")
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_status.setObjectName("tabStatus")
+        left_layout.addWidget(self.lbl_status)
+
+        splitter.addWidget(left_panel)
+
+        # ── Правая колонка: кадры иконки ──
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
+
+        self.frames_group = QGroupBox(tr("icon.group_frames"))
+        frames_layout = QVBoxLayout(self.frames_group)
+        frames_layout.setContentsMargins(8, 8, 8, 8)
+        frames_layout.setSpacing(6)
 
         # Drag-and-Drop область
         self.drag_drop = DragDropArea(tr("icon.drag_title"), [".png"])
         self.drag_drop.files_dropped.connect(self.add_frames)
-        layout.addWidget(self.drag_drop)
+        frames_layout.addWidget(self.drag_drop)
 
         # Список кадров
         self.frame_list = QListWidget()
-        self.frame_list.setIconSize(QSize(250, 250))
+        self.frame_list.setIconSize(QSize(320, 320))
 
         self.frame_list.setViewMode(QListWidget.ViewMode.IconMode)
         self.frame_list.setFlow(QListWidget.Flow.LeftToRight)
         self.frame_list.setWrapping(True)
-        self.frame_list.setFixedHeight(150)
-        layout.addWidget(self.frame_list)
+        # Поле превью иконок сделано крупнее и растяжимым (T6).
+        self.frame_list.setMinimumHeight(300)
+        self.frame_list.setMaximumHeight(560)
+        frames_layout.addWidget(self.frame_list, 1)
 
         # Кнопки управления
         btn_layout = QHBoxLayout()
@@ -140,14 +174,18 @@ class IconEditorWidget(QWidget):
         self.btn_clear.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
 
         btn_layout.addWidget(self.btn_add)
+        btn_layout.addStretch(1)
         btn_layout.addWidget(self.btn_clear)
-        layout.addLayout(btn_layout)
+        frames_layout.addLayout(btn_layout)
 
-        # Инфо
-        self.lbl_status = QLabel("")
+        right_layout.addWidget(self.frames_group, 1)
+        splitter.addWidget(right_panel)
 
-        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.lbl_status)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([280, 760])
+
+        layout.addWidget(splitter, 1)
 
         # Подключение сигналов
         self.btn_add.clicked.connect(self._add_frames)
@@ -170,6 +208,7 @@ class IconEditorWidget(QWidget):
         self.drag_drop.set_text(tr("icon.drag_title"))
         self.btn_add.setText(tr("icon.btn_add"))
         self.btn_clear.setText(tr("icon.btn_clear"))
+        self.frames_group.setTitle(tr("icon.group_frames"))
 
     def add_frames(self, paths):
         dither_level = int(self.dither_cb.currentText().split(" ")[0])
@@ -226,7 +265,6 @@ class IconEditorWidget(QWidget):
 
         if file_name in mapping:
             app_name, w, h = mapping[file_name]
-            # Блокируем сигнал, чтобы не было лишних рекурсий
             self.app_name_edit.blockSignals(True)
             self.app_name_edit.setText(app_name)
             self.app_name_edit.blockSignals(False)
@@ -236,7 +274,6 @@ class IconEditorWidget(QWidget):
                 self.spin_h.setValue(h)
 
     def _apply_passport_preset(self):
-        # legacy fallback: если пользователь меняет App Name вручную
         base = (self.app_name_edit.text() or "").strip().lower()
         if base == "passport":
             if self.spin_w.value() != 128:

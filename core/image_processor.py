@@ -8,7 +8,6 @@ from numpy.typing import NDArray
 
 
 class FlipperImageProcessor:
-    # Фиксированные размеры берутся из валидатора (используются и для UI JPG crop)
     VALID_ICON_SIZES = {
         (10, 10), (12, 12), (14, 14), (16, 16),
         (32, 32), (46, 49), (64, 64), (97, 61), (128, 64)
@@ -19,7 +18,7 @@ class FlipperImageProcessor:
     WIDTH = 128
 
     HEIGHT = 64
-    BYTES_PER_FRAME = (WIDTH * HEIGHT) // 8  # 1024 байта
+    BYTES_PER_FRAME = (WIDTH * HEIGHT) // 8
 
     @classmethod
     def load_and_validate(cls, path: str) -> Optional[Image.Image]:
@@ -44,15 +43,6 @@ class FlipperImageProcessor:
         output_w: int | None = None,
         output_h: int | None = None,
     ) -> Image.Image:
-        """Центрирование, ресайз/кроп и конвертация в 1-бит под output_w x output_h.
-
-        dither_level:
-          0 = без дизеринга
-          1 = Floyd-Steinberg
-          2/3 = сейчас (в зависимости от Pillow) трактуются как Floyd-Steinberg,
-              чтобы обеспечить наличие “уровня” в UI. Алгоритмы/силу можно расширить позже.
-        """
-
 
         w = cls.WIDTH if output_w is None else int(output_w)
         h = cls.HEIGHT if output_h is None else int(output_h)
@@ -72,8 +62,6 @@ class FlipperImageProcessor:
         if dither_level <= 0:
             mode = Image.Dither.NONE
         else:
-            # Pillow пока не даёт “силу” Floyd-Steinberg как параметр.
-            # Используем Floyd-Steinberg для уровней 1..3.
             mode = Image.Dither.FLOYDSTEINBERG
 
         return canvas.convert("1", dither=mode)
@@ -88,14 +76,13 @@ class FlipperImageProcessor:
     ) -> bytes:
         """Упаковка 1-бит изображения в bytes Flipper (LSB-first, white=1) под output_w x output_h.
 
-        Формат совпадает с asset_packer.py (PIL XBM): каждая строка дополняется
-        до полного байта, первый пиксель строки — младший бит байта (LSB-first).
+        Первый пиксель строки — младший бит байта (LSB-first).
         """
         w = cls.WIDTH if output_w is None else int(output_w)
         h = cls.HEIGHT if output_h is None else int(output_h)
 
         arr = np.array(img_1bit, dtype=np.uint8)
-        arr = (arr > 0).astype(np.uint8)  # 0/1, white=1
+        arr = (arr > 0).astype(np.uint8)
 
         arr2 = arr.reshape(h, w)
         packed = np.packbits(arr2, axis=1, bitorder="little")
@@ -114,17 +101,11 @@ class FlipperImageProcessor:
         invert_bits: bool = False,
     ) -> QPixmap:
 
-        """Конвертация сырых байтов Flipper → QPixmap для GUI.
-
-        Для произвольных width/height нужно, чтобы в data были байты/битсет под эту сетку.
-        bitorder по умолчанию "little" — формат Flipper/asset_packer (PIL XBM).
-        """
+        """Конвертация сырых байтов Flipper → QPixmap для GUI."""
+        
         w = cls.WIDTH if width is None else int(width)
         h = cls.HEIGHT if height is None else int(height)
 
-        # Формат Flipper/asset_packer (PIL XBM): упаковка ПО-СТРОЧНО, каждая
-        # строка дополняется до полного байта, биты внутри байта — LSB-first.
-        # Для 46x49 это критично: иначе получались «вертикальные полосы».
         row_bytes = (w + 7) // 8
         expected_bytes = row_bytes * h
 
@@ -139,12 +120,8 @@ class FlipperImageProcessor:
             bits = 1 - bits
 
         img_bytes = (bits * 255).astype(np.uint8).tobytes()
-        # ВАЖНО: передаём явный bytesPerLine = w, чтобы Qt не дополнял каждую
-        # строку до кратного 4 (у ширины 46 -> 48), иначе строки «поедут»
-        # и в превью окажутся полосы/сдвиг (артефакт был для 46x49).
         qimg = QImage(img_bytes, w, h, w, QImage.Format.Format_Grayscale8)
 
-        # Строго в размер: без KeepAspectRatio, чтобы не терялись края.
         return QPixmap.fromImage(qimg).scaled(
             w * scale,
             h * scale,
@@ -200,10 +177,6 @@ class FlipperImageProcessor:
         output_w: int | None = None,
         output_h: int | None = None,
     ) -> bytes:
-        """Обработка PNG → Flipper bytes БЕЗ создания QPixmap.
-
-        Безопасно вызывать из фонового потока (нет Qt GUI-объектов) — A2.
-        """
         return cls._png_to_bytes(
             cls.load_and_validate(path), int(dither_level), output_w, output_h
         )
@@ -314,15 +287,8 @@ class FlipperImageProcessor:
         crop_bottom: int,
         mode: str = "center_crop",
     ) -> Path:
-        """Экспорт PNG по произвольному crop-rect исходного изображения.
 
-        crop_left/crop_top/crop_right/crop_bottom — координаты в пикселях исходника.
-        Далее результат ресайзится/вписывается в (output_w, output_h).
-
-        Параметр mode оставлен для совместимости, но обрезка идет строго по crop-rect.
-        """
-
-        del mode  # обрезка строго по рамке
+        del mode
 
         img = cls._load_image_any(input_path)
         src_w, src_h = img.size
@@ -347,8 +313,6 @@ class FlipperImageProcessor:
 
         cropped = img.crop((l, t, r, b)).convert("RGBA")
 
-        # Подгоняем cropped под target output_w/output_h.
-        # center_crop/contain здесь определяет способ подгонки после crop.
         out_img = cls._crop_and_resize_to_target(
             cropped,
             output_w,
@@ -377,17 +341,8 @@ class FlipperImageProcessor:
         crop_bottom: int,
         mode: str = "center_crop",
     ) -> list[Path]:
-        """Экспорт всех кадров .gif в отдельные PNG по произвольному crop-rect.
 
-        Работает по тому же принципу, что и export_jpg_custom_crop_to_png:
-        рамка (crop_left/top/right/bottom) задаётся в пикселях исходного кадра,
-        каждый кадр обрезается по рамке и вписывается в (output_w, output_h).
-        Кадры сохраняются как {stem}_{output_w}x{output_h}_{NNN}.png.
-
-        Параметр mode оставлен для совместимости, но обрезка идёт строго по crop-rect.
-        """
-
-        del mode  # обрезка строго по рамке
+        del mode
 
         p = Path(input_path)
         if not p.exists():
@@ -403,7 +358,6 @@ class FlipperImageProcessor:
             img.close()
             raise ValueError("GIF has zero size")
 
-        # Размер холста анимации (у кадров GIF общий).
         src_w, src_h = img.size
 
         l = int(crop_left)
@@ -430,13 +384,11 @@ class FlipperImageProcessor:
             for index, frame in enumerate(ImageSequence.Iterator(img)):
                 frame = frame.convert("RGBA")
 
-                # Фреймы в редких случаях бывают меньше холста — приводим к общему размеру.
                 if frame.size != (src_w, src_h):
                     frame = frame.resize((src_w, src_h), Image.Resampling.BILINEAR)
 
                 cropped = frame.crop((l, t, r, b))
 
-                # Та же логика подгонки, что и у JPG crop (contain).
                 out_img = cls._crop_and_resize_to_target(
                     cropped,
                     output_w,

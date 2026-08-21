@@ -299,6 +299,206 @@ QCheckBox::indicator:checked {{
     border: 1px solid {C["blue"]};
 }}
 
+/* ── Группы-карточки: скругления и фон темы, заголовок — текст без «плашки» ──
+   Применяется глобально, чтобы все вкладки выглядели единым стилем
+   (Create, Animation, Icons, Validator, JPG/GIF Crop, Meta, Preview). */
+QGroupBox {{
+    background-color: {C["mantle"]};
+    border: 1px solid {C["overlay"]};
+    border-radius: 10px;
+    margin-top: 16px;
+    padding-top: 8px;
+}}
+
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    top: 0px;
+    padding: 1px 6px 1px 2px;
+    color: {C["blue"]};
+    background-color: transparent;
+    border: none;
+    font-weight: 700;
+}}
+
+QPushButton#toolButton {{
+    background-color: {C["surface"]};
+    color: {C["text"]};
+    border: 1px solid {C["overlay"]};
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 400;
+    padding: 2px;
+}}
+
+QPushButton#toolButton:hover {{
+    background-color: {C["overlay"]};
+    border-color: {C["blue"]};
+}}
+
+QPushButton#toolButton:checked {{
+    background-color: {C["blue"]};
+    color: {C["crust"]};
+    border-color: {C["blue"]};
+}}
+
+QPushButton#compactBtn {{
+    background-color: {C["surface"]};
+    color: {C["text"]};
+    border: 1px solid {C["overlay"]};
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    padding: 2px;
+}}
+
+QPushButton#compactBtn:hover {{
+    background-color: {C["overlay"]};
+    border-color: {C["blue"]};
+}}
+
+QPushButton#compactBtn:pressed {{
+    background-color: {C["blue"]};
+    color: {C["crust"]};
+}}
+
+QLabel#createStatus, QLabel#tabStatus {{
+    color: {C["subtext"]};
+    font-weight: 600;
+    padding: 2px;
+}}
+
+QLabel#mutedLabel {{
+    color: {C["subtext"]};
+    font-style: italic;
+}}
+
+/* Редактор Meta: моноширинный текст manifest/meta */
+QTextEdit#metaText {{
+    font-family: "Menlo", "Consolas", monospace;
+    font-size: 12px;
+    line-height: 1.3;
+}}
+
+/* Валидатор: список результатов тем же шрифтом, фон и рамка от темы */
+QListWidget#validatorResults {{
+    font-family: "Menlo", "Consolas", monospace;
+    font-size: 12px;
+    border: 1px solid {C["overlay"]};
+    border-radius: 10px;
+    background-color: {C["surface"]};
+}}
+
+/* Превью crop (JPG/GIF): тёмная область просмотра, рамка от темы */
+QWidget#cropPreview {{
+    background-color: {C["crust"]};
+    border: 1px solid {C["overlay"]};
+}}
+
+QComboBox {{
+    background-color: {C["surface"]};
+    color: {C["text"]};
+    border: 1px solid {C["overlay"]};
+    border-radius: 8px;
+    padding: 6px 10px;
+    min-height: 16px;
+}}
+
+QComboBox:hover {{
+    border-color: {C["blue"]};
+}}
+
+QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 24px;
+    border-left: 1px solid {C["overlay"]};
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}}
+
+QComboBox::down-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {C["subtext"]};
+    margin-right: 8px;
+}}
+
+QComboBox QAbstractItemView {{
+    background-color: {C["mantle"]};
+    color: {C["text"]};
+    border: 1px solid {C["overlay"]};
+    border-radius: 8px;
+    selection-background-color: {C["blue"]};
+    selection-color: {C["crust"]};
+    padding: 4px;
+    outline: none;
+}}
+
+QSplitter::handle {{
+    background-color: transparent;
+}}
+
+QSplitter::handle:horizontal {{
+    width: 1px;
+    margin: 0px 2px;
+}}
+
+QSplitter::handle:vertical {{
+    height: 1px;
+    margin: 2px 0px;
+}}
+
+QSplitter::handle:hover {{
+    background-color: {C["blue"]};
+}}
+
+QScrollBar:vertical {{
+    background: transparent;
+    width: 10px;
+    margin: 0;
+}}
+
+QScrollBar::handle:vertical {{
+    background: {C["overlay"]};
+    border-radius: 5px;
+    min-height: 24px;
+}}
+
+QScrollBar::handle:vertical:hover {{
+    background: {C["blue"]};
+}}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: transparent;
+    height: 0;
+}}
+
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 10px;
+    margin: 0;
+}}
+
+QScrollBar::handle:horizontal {{
+    background: {C["overlay"]};
+    border-radius: 5px;
+    min-width: 24px;
+}}
+
+QScrollBar::handle:horizontal:hover {{
+    background: {C["blue"]};
+}}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: transparent;
+    width: 0;
+}}
+
 QTabWidget::pane {{
     border: 1px solid {C["overlay"]};
     border-radius: 12px;
@@ -340,9 +540,9 @@ QLabel#dragDropLabel {{
     background-color: {C["surface"]};
     border: 3px dashed {C["overlay"]};
     border-radius: 10px;
-    padding: 40px;
+    padding: 24px;
     color: {C["subtext"]};
-    font-size: 16px;
+    font-size: 15px;
     font-weight: bold;
 }}
 

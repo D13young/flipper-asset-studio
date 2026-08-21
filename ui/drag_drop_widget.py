@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QMessageBox
+from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QMessageBox, QSizePolicy
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
@@ -9,10 +9,8 @@ from ui.i18n import trf, tr
 class DragDropArea(QWidget):
     """Область для Drag-and-Drop импорта файлов"""
 
-    files_dropped = pyqtSignal(list)  # Сигнал с списком путей файлов
+    files_dropped = pyqtSignal(list)
 
-    # Имя объекта используется селектором в глобальной теме
-    # (ui/styles.py -> QLabel#dragDropLabel), чтобы цвета следовали теме (A4).
     LABEL_OBJECT_NAME = "dragDropLabel"
 
     def __init__(self, title: str = "", accepted_extensions=None):
@@ -34,18 +32,18 @@ class DragDropArea(QWidget):
         self.label = QLabel(title)
         self.label.setObjectName(self.LABEL_OBJECT_NAME)
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label.setWordWrap(True)
         self.label.setMinimumSize(200, 100)
+        self.label.setSizePolicy(
+            self.label.sizePolicy().horizontalPolicy(),
+            QSizePolicy.Policy.Expanding,
+        )
 
         layout.addWidget(self.label)
         self.setLayout(layout)
 
     def _set_state(self, state: str):
-        """Переключает динамическое свойство 'state' для перекраски из темы.
-
-        Явного setStyleSheet здесь нет (A4): фон/граница/цвет берутся из
-        активной темы селектором QLabel#dragDropLabel[state=...]. Чтобы Qt
-        перерисовал виджет при смене свойства, нужен unpolish/polish.
-        """
+        """Переключает динамическое свойство 'state' для перекраски из темы"""
         current = self.label.property("state") or ""
         if current == state:
             return
@@ -62,7 +60,6 @@ class DragDropArea(QWidget):
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Событие при перетаскивании файла над областью"""
         if event.mimeData().hasUrls():
-            # Проверяем, есть ли подходящие файлы
             urls = event.mimeData().urls()
             valid_files = [
                 url.toLocalFile() for url in urls

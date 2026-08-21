@@ -7,10 +7,10 @@ from typing import Tuple
 from core.image_processor import FlipperImageProcessor
 
 try:
-    import heatshrink2  # type: ignore
+    import heatshrink2
 
     HEATSHRINK_AVAILABLE = True
-except ImportError:  # pragma: no cover
+except ImportError:
     heatshrink2 = None
     HEATSHRINK_AVAILABLE = False
 
@@ -65,7 +65,6 @@ class FlipperBmBmxDecoder:
                 raise BM_BMX_DecodeError(f"Compressed .bm too short: {len(raw)} bytes ({path})")
 
             if raw[1] != 0x00:
-                # Нестандартный padd, но продолжаем
                 pass
 
             enc_len = raw[2] | (raw[3] << 8)
@@ -92,8 +91,6 @@ class FlipperBmBmxDecoder:
             return 1, xbm_bytes
 
         else:
-            # Неизвестный флаг — может быть старый формат или просто данные
-            # Пробуем интерпретировать как raw XBM (для обратной совместимости)
             return 0, raw
 
     @classmethod
@@ -218,7 +215,6 @@ class FlipperBmBmxDecoder:
         for cw, ch in candidates:
             expected = cls._expected_packed_bytes(cw, ch)
             if len(raw) == expected or len(raw) == expected + 1:
-                # Возможно это уже preview bytes или XBM без флага
                 data = raw[-expected:]
                 preview_bytes = cls._xbm_to_preview_bytes(data, cw, ch)
                 return cw, ch, preview_bytes

@@ -28,7 +28,7 @@ class FlipperAnimationManager:
         """Добавить кадр с уже посчитанными bytes.
 
         Превью строится позже (в UI-потоке), т.к. QPixmap нельзя создавать
-        в фоновом потоке. Используется асинхронным импортом кадров (A2).
+        в фоновом потоке. Используется асинхронным импортом кадров.
         """
         self.frames.append({
             "path": png_path,
@@ -41,7 +41,7 @@ class FlipperAnimationManager:
     def reprocess_frames_to_bytes(self, dither_level: int):
         """Пересчитать bytes для всех кадров (БЕЗ QPixmap).
 
-        Возвращает список (path, bytes) для применения в UI-потоке. A2.
+        Возвращает список (path, bytes) для применения в UI-потоке.
         """
         dither_level = int(dither_level)
         out = []
@@ -106,7 +106,7 @@ Bubble slots: {self.meta_params['bubble_slots']}"""
         weight: int = 8,
     ) -> str:
         # Momentum ограничивает Max butthurt сверху — фиксируем поведение.
-        max_bh = min(int(max_bh), 18)
+        max_bh = min(int(max_bh), 14)
         weight = int(weight)
         return f"""Filetype: Flipper Animation Manifest
 Version: 1

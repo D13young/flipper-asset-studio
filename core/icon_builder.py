@@ -11,9 +11,6 @@ class FlipperIconBuilder:
 
     """
 
-    # Формат бинарного meta для иконок:
-    # Width (2B), Height (2B), Frame Rate (1B), Frame Count (1B) = 6 байт
-    # Little Endian ("<")
     META_STRUCT_FMT = "<HHBB"
 
     @classmethod
@@ -39,8 +36,6 @@ class FlipperIconBuilder:
 
     ) -> Path:
 
-
-
         """
         Экспортирует иконку в папку.
         Если 1 кадр -> просто сохраняет файл (icon.bm или icon.bmx).
@@ -49,8 +44,6 @@ class FlipperIconBuilder:
         frames_bytes: список packed bytes (white=1, LSB-first, по-строчно)
         """
 
-        # output_folder обязан быть путём (Path/str), а не результатом process_png.
-        # Если снаружи прилетает dict — это ошибка прокидывания аргументов.
         if isinstance(output_folder, dict):
             raise TypeError(
                 "export_icon: output_folder должен быть Path/str (например Path(out_dir)/'Icons'/app_name), "
@@ -63,16 +56,11 @@ class FlipperIconBuilder:
         ext = "bmx" if compress else "bm"
 
         if len(frames_bytes) == 1:
-            # Статическая иконка: просто один файл
             file_path = output_folder / f"{file_basename}.{ext}"
 
-            # Если для passport static есть исходные PNG пути — делаем точный pipeline
-            # Momentum: Pillow.convert("1") -> ImageOps.invert -> save(..., format="XBM")
-            # и только потом собираем .bm/.bmx через уже существующие конверторы.
             if frames_paths and len(frames_paths) == 1:
                 png_path = frames_paths[0]
                 img = FlipperImageProcessor.load_and_validate(png_path)
-                # Применяем dither как в UI/процессинге: 0 => без дизеринга
                 img_1bit = FlipperImageProcessor.preprocess(
                     img,
                     dither_level=dither_level,
@@ -96,10 +84,8 @@ class FlipperIconBuilder:
                 xbm_bytes = bytearray.fromhex(data_str)
                 xbm_bytes = bytes(xbm_bytes)
 
-                # asset_packer convert_bm делает heatshrink поверх XBM bytes
                 bm_data = FlipperExporter._xbm_bytes_to_bm(xbm_bytes, compress=True)
                 if compress:
-                    # .bmx контейнер: header(<II) + convert_bm output
                     bmx_data = struct.pack("<II", width, height) + bm_data
                     file_path.write_bytes(bmx_data)
                 else:
@@ -107,14 +93,12 @@ class FlipperIconBuilder:
 
                 return file_path
 
-            # fallback: старый путь (через уже упакованные bytes)
             if compress:
                 bmx_data = FlipperExporter._make_bmx_from_bytes(
                     frames_bytes[0], width, height, compress=True
                 )
                 file_path.write_bytes(bmx_data)
             else:
-                # Momentum expects .bm payload to be heatshrink-compressed (flag=0x01)
                 bm_data = FlipperExporter._make_bm_from_bytes(
                     frames_bytes[0], width, height, compress=True
                 )
@@ -123,7 +107,6 @@ class FlipperIconBuilder:
             return file_path
 
         else:
-            # Анимированная иконка: папка + кадры + meta
             meta_data = cls.create_binary_meta(width, height, fps, len(frames_bytes))
             (output_folder / "meta").write_bytes(meta_data)
 
@@ -135,7 +118,6 @@ class FlipperIconBuilder:
                     )
                     frame_path.write_bytes(bmx_data)
                 else:
-                    # Momentum expects .bm payload to be heatshrink-compressed (flag=0x01)
                     bm_data = FlipperExporter._make_bm_from_bytes(
                         frame_data, width, height, compress=True
                     )

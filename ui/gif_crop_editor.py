@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QSlider,
     QMessageBox,
+    QSplitter,
 )
 
 from core.image_processor import FlipperImageProcessor
@@ -49,6 +50,7 @@ class GifCropEditorWidget(QWidget):
 
         self._input_path: str | None = None
         self._frames_pil: list[Image.Image] = []
+        self._canvas_size: tuple[int, int] | None = None
         self._preview_cache: dict[int, QPixmap] = {}
         self._exporting = False
         self._export_out_dir: str = ""
@@ -63,17 +65,30 @@ class GifCropEditorWidget(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        # ── Левая колонка: drag-drop + параметры ──
+        left_panel = QWidget()
+        left_panel.setMinimumWidth(260)
+        left_panel.setMaximumWidth(370)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
 
         # Drag-and-Drop область
         self.drop_area = DragDropArea(
             tr("gif.drag_title"),
             [".gif"],
         )
-        layout.addWidget(self.drop_area)
+        left_layout.addWidget(self.drop_area)
 
         self.controls_group = QGroupBox(tr("gif.group_controls"))
         self.controls_layout = QFormLayout(self.controls_group)
+        self.controls_layout.setVerticalSpacing(8)
 
         self.btn_load = QPushButton(tr("gif.btn_load"))
         self.lbl_loaded = QLabel(tr("gif.loaded_default"))
@@ -94,13 +109,22 @@ class GifCropEditorWidget(QWidget):
         self.controls_layout.addRow(tr("gif.lbl_frames_label"), self.lbl_frames)
         self.controls_layout.addRow("", self.btn_export)
 
-        layout.addWidget(self.controls_group)
+        left_layout.addWidget(self.controls_group)
+        left_layout.addStretch(1)
+        splitter.addWidget(left_panel)
+
+        # ── Правая колонка: превью + перебор кадров + подсказка ──
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
 
         self.preview_group = QGroupBox(tr("gif.group_preview"))
         preview_layout = QVBoxLayout(self.preview_group)
+        preview_layout.setContentsMargins(8, 8, 8, 8)
 
         self.preview_widget = CropPreviewWidget(empty_hint=tr("gif.preview_hint"))
-        preview_layout.addWidget(self.preview_widget)
+        preview_layout.addWidget(self.preview_widget, 1)
 
         # Перебор кадров в превью
         frame_row = QHBoxLayout()
@@ -118,11 +142,18 @@ class GifCropEditorWidget(QWidget):
         self.lbl_hint.setWordWrap(True)
         preview_layout.addWidget(self.lbl_hint)
 
-        layout.addWidget(self.preview_group)
+        right_layout.addWidget(self.preview_group, 1)
+        splitter.addWidget(right_panel)
+
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 760])
+        layout.addWidget(splitter, 1)
 
     def retranslate(self):
         """Обновляет тексты при смене языка."""
         self.drop_area.set_text(tr("gif.drag_title"))
+        self.preview_widget.set_empty_hint(tr("gif.preview_hint"))
         self.controls_group.setTitle(tr("gif.group_controls"))
         self.btn_load.setText(tr("gif.btn_load"))
         self.btn_export.setText(tr("gif.btn_export"))
@@ -190,6 +221,7 @@ class GifCropEditorWidget(QWidget):
         except Exception as e:
             self._input_path = None
             self._frames_pil = []
+            self._canvas_size = None
             self._preview_cache.clear()
             self._refresh_ui()
             QMessageBox.critical(self, tr("dlg.error"), str(e))
@@ -217,6 +249,8 @@ class GifCropEditorWidget(QWidget):
         if img.width == 0 or img.height == 0:
             img.close()
             raise ValueError("GIF имеет нулевой размер")
+
+        self._canvas_size = (img.width, img.height)
 
         frames: list[Image.Image] = []
         try:
@@ -250,8 +284,9 @@ class GifCropEditorWidget(QWidget):
             pm = _pil_to_preview_pixmap(self._frames_pil[idx])
             self._preview_cache[idx] = pm
 
-        # reset_crop=False: рамка crop сохраняется при переключении кадров
         self.preview_widget.set_pixmap(pm, reset_crop=reset_crop)
+        if self._canvas_size is not None:
+            self.preview_widget.set_source_size(*self._canvas_size)
         self.lbl_frame_idx.setText(f"{idx + 1}/{len(self._frames_pil)}")
 
     # ---------------- Export ----------------
@@ -267,8 +302,6 @@ class GifCropEditorWidget(QWidget):
         out_w, out_h = self._selected_out_size()
         left, top, right, bottom = self.preview_widget.get_crop_rect_in_source()
 
-        # Экспорт всех кадров (до 4096) выполняется в фоновом потоке (A2),
-        # чтобы UI не зависал на время обработки.
         self._exporting = True
         self._export_out_dir = out_dir
         self.btn_export.setEnabled(False)

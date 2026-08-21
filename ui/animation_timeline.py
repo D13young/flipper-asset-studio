@@ -29,21 +29,26 @@ class AnimationTimelineWidget(QWidget):
         super().__init__()
         self.manager = manager
         self._bg = BackgroundRunner(self)
-        self._reprocess_gen = 0  # защита от устаревших результатов репроцесса
+        self._reprocess_gen = 0
         self._setup_ui()
         self._connect_signals()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-
         layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(8)
+
+        # ── Карточка «Кадры»: drag-drop + кинолента + кнопки ──
+        self.frames_group = QGroupBox(tr("anim.group_frames"))
+        frames_layout = QVBoxLayout(self.frames_group)
+        frames_layout.setSpacing(6)
+        frames_layout.setContentsMargins(8, 8, 8, 8)
 
         # Drag-and-Drop область для кадров
         # кадры добавляются в FlipperAnimationManager и автоматически триггерят обновление UI/preview/meta.
-
         self.drop_area = DragDropArea(tr("anim.drag_title"), [".png"])
         self.drop_area.files_dropped.connect(self._on_frames_dropped)
-        layout.addWidget(self.drop_area)
+        frames_layout.addWidget(self.drop_area, 0)
 
         # Список кадров
         self.frame_list = QListWidget()
@@ -52,8 +57,9 @@ class AnimationTimelineWidget(QWidget):
         from PyQt6.QtWidgets import QListView
         self.frame_list.setFlow(QListView.Flow.LeftToRight)
         self.frame_list.setSpacing(4)
+        self.frame_list.setFixedHeight(120)
 
-        layout.addWidget(self.frame_list)
+        frames_layout.addWidget(self.frame_list, 1)
 
         # Кнопки управления
         btn_layout = QHBoxLayout()
@@ -66,12 +72,15 @@ class AnimationTimelineWidget(QWidget):
         btn_layout.addWidget(self.btn_up)
         btn_layout.addWidget(self.btn_down)
         btn_layout.addWidget(self.btn_remove)
+        btn_layout.addStretch(1)
         btn_layout.addWidget(self.btn_clear)
-        layout.addLayout(btn_layout)
+        frames_layout.addLayout(btn_layout)
 
-        # Параметры анимации
+        layout.addWidget(self.frames_group, 1)
+
+        # ── Карточка «Параметры анимации» ──
         self.param_group = QGroupBox(tr("anim.group_params"))
-        param_layout = QGridLayout()
+        param_layout = QGridLayout(self.param_group)
         param_layout.setHorizontalSpacing(16)
         param_layout.setVerticalSpacing(8)
 
@@ -122,8 +131,7 @@ class AnimationTimelineWidget(QWidget):
         param_layout.setColumnStretch(1, 1)
         param_layout.setColumnStretch(3, 1)
 
-        self.param_group.setLayout(param_layout)
-        layout.addWidget(self.param_group)
+        layout.addWidget(self.param_group, 0)
 
     def retranslate(self):
         """Обновляет тексты при смене языка."""
@@ -133,6 +141,7 @@ class AnimationTimelineWidget(QWidget):
         self.btn_down.setText(tr("anim.btn_down"))
         self.btn_remove.setText(tr("anim.btn_remove"))
         self.btn_clear.setText(tr("anim.btn_clear"))
+        self.frames_group.setTitle(tr("anim.group_frames"))
         self.param_group.setTitle(tr("anim.group_params"))
         self.lbl_dither.setText(tr("anim.lbl_dither"))
         self.lbl_fps.setText(tr("anim.lbl_fps"))
@@ -160,7 +169,6 @@ class AnimationTimelineWidget(QWidget):
 
         self.spin_dither_level.valueChanged.connect(self._on_dither_level_changed)
 
-        # QLineEdit меняется через textChanged
         self.line_name.textChanged.connect(self._emit_meta)
 
     def import_paths(self, paths):
@@ -249,7 +257,6 @@ class AnimationTimelineWidget(QWidget):
         self._emit_meta()
 
     def _on_dither_level_changed(self):
-        # Пересчёт кадров в фоновом потоке; превью строится в UI-потоке (A2).
         if not self.manager.frames:
             return
         dither_level = int(self.spin_dither_level.value())
@@ -257,7 +264,6 @@ class AnimationTimelineWidget(QWidget):
         gen = self._reprocess_gen
 
         def _done(pairs):
-            # Применяем только результат последнего запроса (защита от гонки).
             if gen == self._reprocess_gen:
                 self._apply_reprocessed_frames(pairs)
 

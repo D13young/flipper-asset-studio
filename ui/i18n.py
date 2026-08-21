@@ -12,10 +12,8 @@ LANGUAGES = {
     LANG_EN: "English",
 }
 
-# Порядок языков для меню переключения
 LANGUAGE_ORDER = [LANG_RU, LANG_EN]
 
-# Каталог переводов. Ключи — имена строк, значения — слова по языкам.
 STRINGS: dict[str, dict[str, str]] = {
     LANG_RU: {
         # ── Главное окно ──
@@ -52,12 +50,20 @@ STRINGS: dict[str, dict[str, str]] = {
         "single.drag_title": "Перетащите PNG или нажмите «Импорт»",
         "single.preview_hint": "Импортируйте PNG",
         "single.dither": "Дизеринг Флойда-Стейнберга",
+        "single.group_preview": "💡 Предпросмотр",
+        "single.group_settings": "⚙️ Параметры",
 
         "anim.preview_hint": "Добавьте кадры для предпросмотра",
         "anim.preview_hint_short": "Добавьте кадры",
+        "anim.group_preview": "▶ Предпросмотр",
+        "anim.group_frames": "🖼 Кадры",
 
         "bm.drop_title": "Перетащите .bm / .bmx для превью",
         "bm.preview_hint": "Загружайте .bm / .bmx",
+        "bm.group_preview": "📺 Превью",
+
+        "meta.group_preview": "📃 Meta / Manifest",
+        "meta.hint": "Сгенерированный meta.txt / manifest.txt для экспорта анимации.",
 
         "status.ready": "Готово. Выберите PNG или добавьте кадры анимации.",
         "status.dnd_files": "📄 Перетащено файлов: {count}",
@@ -92,6 +98,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "val.stats_default": "Статистика: -",
         "val.stats": "📊 Всего: {total} | ✅ Успешно: {success} | ℹ️ Инфо: {info} | ⚠️ Предупреждения: {warning} | ❌ Ошибки: {error}",
         "val.select_folder": "Выберите папку Asset Pack",
+        "val.group_pack": "📦 Asset Pack",
 
         # ── Animation Timeline ──
         "anim.drag_title": "📥 Перетащите PNG кадры сюда",
@@ -123,12 +130,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "icon.btn_add": "Добавить кадры",
         "icon.btn_clear": "Очистить",
         "icon.select_frames": "Выбрать кадры иконки",
+        "icon.group_frames": "🖼 Кадры иконки",
 
         # ── Create Editor ──
         "create.group_settings": "⚙️ Настройки",
         "create.lbl_name_png": "Имя PNG:",
         "create.lbl_width": "Ширина (px):",
         "create.lbl_height": "Высота (px):",
+        "create.group_tools": "🛠 Инструменты",
+        "create.tool_pencil": "Карандаш (B)",
+        "create.tool_line": "Линия (L)",
+        "create.tool_rect": "Прямоугольник (R)",
+        "create.tool_square": "Квадрат (Q)",
+        "create.tool_circle": "Круг (C)",
+        "create.tool_triangle": "Треугольник (T)",
+        "create.tool_bucket": "Заливка области (F)",
+        "create.lbl_brush_size": "Размер кисти:",
+        "create.chk_fill": "Заливка",
+        "create.chk_round": "Круглая кисть",
+        "create.chk_onion": "👻 Показ. предыдущий кадр",
+        "create.btn_dup_frame": "📑 Дублировать кадр",
         "create.group_canvas": "🖼️ Холст",
         "create.group_frames": "Кадры",
         "create.btn_add_frame": "➕ Добавить кадр",
@@ -214,12 +235,20 @@ STRINGS: dict[str, dict[str, str]] = {
         "single.drag_title": "Drag a PNG or click Import",
         "single.preview_hint": "Import a PNG",
         "single.dither": "Floyd-Steinberg Dithering",
+        "single.group_preview": "💡 Preview",
+        "single.group_settings": "⚙️ Settings",
 
         "anim.preview_hint": "Add frames for preview",
         "anim.preview_hint_short": "Add frames",
+        "anim.group_preview": "▶ Preview",
+        "anim.group_frames": "🖼 Frames",
 
         "bm.drop_title": "Drop .bm / .bmx to preview",
         "bm.preview_hint": "Load .bm / .bmx",
+        "bm.group_preview": "📺 Preview",
+
+        "meta.group_preview": "📃 Meta / Manifest",
+        "meta.hint": "Generated meta.txt / manifest.txt for animation export.",
 
         "status.ready": "Ready. Select a PNG or add animation frames.",
         "status.dnd_files": "📄 Drag&Drop: {count} file(s)",
@@ -254,6 +283,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "val.stats_default": "Statistics: -",
         "val.stats": "📊 Total: {total} | ✅ Success: {success} | ℹ️ Info: {info} | ⚠️ Warnings: {warning} | ❌ Errors: {error}",
         "val.select_folder": "Choose Asset Pack folder",
+        "val.group_pack": "📦 Asset Pack",
 
         # ── Animation Timeline ──
         "anim.drag_title": "📥 Drag PNG frames here",
@@ -285,12 +315,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "icon.btn_add": "Add Frames",
         "icon.btn_clear": "Clear",
         "icon.select_frames": "Add Icon Frames",
+        "icon.group_frames": "🖼 Icon Frames",
 
         # ── Create Editor ──
         "create.group_settings": "⚙️ Settings",
         "create.lbl_name_png": "Name PNG:",
         "create.lbl_width": "Width (px):",
         "create.lbl_height": "Height (px):",
+        "create.group_tools": "🛠 Tools",
+        "create.tool_pencil": "Pencil (B)",
+        "create.tool_line": "Line (L)",
+        "create.tool_rect": "Rectangle (R)",
+        "create.tool_square": "Square (Q)",
+        "create.tool_circle": "Circle (C)",
+        "create.tool_triangle": "Triangle (T)",
+        "create.tool_bucket": "Flood Fill (F)",
+        "create.lbl_brush_size": "Brush size:",
+        "create.chk_fill": "Fill",
+        "create.chk_round": "Round brush",
+        "create.chk_onion": "👻 Show previous frame",
+        "create.btn_dup_frame": "📑 Duplicate Frame",
         "create.group_canvas": "🖼️ Canvas",
         "create.group_frames": "Frames",
         "create.btn_add_frame": "➕ Add Frame",

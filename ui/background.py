@@ -1,9 +1,3 @@
-"""Выполнение тяжёлых операций в фоновом потоке (A2).
-
-BackgroundRunner запускает произвольную функцию в отдельном QThread.
-Сигналы done/err доставляются в поток UI (queued connection), поэтому
-в on_done/on_error можно безопасно обновлять виджеты.
-"""
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 
@@ -46,17 +40,11 @@ class BackgroundRunner:
 
     def __init__(self, parent=None):
         self._parent = parent
-        # Удерживаем (thread, worker, bridge) до завершения задачи: иначе Python-GC
-        # удалит worker раньше, чем поток запустится, и соединение
-        # thread.started -> worker.run повиснет на мёртвом объекте.
         self._jobs: set[tuple[QThread, _Worker, _Bridge]] = set()
 
     def run(self, fn, on_done, on_error=None, args=(), kwargs=None):
         thread = QThread(self._parent)
         worker = _Worker(fn, tuple(args), dict(kwargs or {}))
-        # Отдельный мост НА ЗАДАНИЕ: он живёт в UI-потоке и перебрасывает
-        # результат из воркера. Нельзя переиспользовать общий мост — иначе
-        # сигналы накопятся между запусками и один результат сработает N раз.
         bridge = _Bridge(self._parent)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -65,7 +53,6 @@ class BackgroundRunner:
             self._jobs.discard((thread, worker, bridge))
             thread.quit()
 
-        # Воркер -> мост (queued, в поток UI) -> пользовательские колбэки.
         worker.done.connect(bridge.done)
         bridge.done.connect(on_done)
         bridge.done.connect(_finish)

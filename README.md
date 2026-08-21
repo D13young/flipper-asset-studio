@@ -131,30 +131,53 @@ python main.py
 ```
 flipper_asset_studio/
 ├── main.py                     # Точка входа в приложение (GUI)
-├── requirements.txt            # Зависимости Python
+├── requirements.txt            # Зависимости для запуска
+├── requirements-dev.txt        # Зависимости для разработки и тестов
 ├── README.md                   # Документация
+├── main.spec, FASt.spec        # Конфигурации сборки PyInstaller
 │
 ├── core/                       # Логика: обработка изображений/экспорт/валидация
 │   ├── __init__.py
-│   ├── animation_manager.py  # Управление кадрами анимации и генерация meta/manifest
+│   ├── animation_manager.py    # Управление кадрами анимации и генерация meta/manifest
 │   ├── bm_bmx_decoder.py       # Декодер/утилиты для .bm/.bmx
 │   ├── exporter.py             # Экспорт анимаций и упаковка meta/manifest
 │   ├── icon_builder.py         # Экспорт иконок (статические и анимированные)
 │   ├── image_processor.py      # PNG -> 1-bit, дизеринг, ресайз/центрирование
-│   └── validator.py           # Проверка структуры asset pack
+│   └── validator.py            # Проверка структуры asset pack
 │
 ├── ui/                         # UI (Qt)
 │   ├── __init__.py
-│   ├── main_window.py         # Главное окно
-│   ├── animation_timeline.py  # Таймлайн/управление кадрами
-│   ├── icon_editor.py         # Редактор иконок
-│   ├── gif_crop_editor.py     # GIF → PNG (кадрирование анимации)
-│   ├── jpg_crop_editor.py     # Редактор кадрирования (jpg)
-│   ├── validator_widget.py    # Виджет результатов валидации
-│   ├── drag_drop_widget.py    # Drag-and-Drop обработка
-│   └── create_editor.py       # Редактор/страницы создания
+│   ├── main_window.py          # Главное окно
+│   ├── styles.py               # Стили и оформление интерфейса
+│   ├── background.py           # Фоновые декоративные элементы
+│   ├── i18n.py                 # Интернационализация (переводы)
+│   ├── animation_timeline.py   # Таймлайн/управление кадрами
+│   ├── icon_editor.py          # Редактор иконок
+│   ├── gif_crop_editor.py      # GIF → PNG (кадрирование анимации)
+│   ├── jpg_crop_editor.py      # Редактор кадрирования (jpg)
+│   ├── validator_widget.py     # Виджет результатов валидации
+│   ├── drag_drop_widget.py     # Drag-and-Drop обработка
+│   └── create_editor.py        # Редактор/страницы создания
 │
-└── assets/                     # Ресурсы приложения (иконки/файлы)
+├── scripts/
+│   └── asset_packer.py         # Утилита упаковки/создания asset pack
+│
+├── assets/                     # Ресурсы приложения (SVG-иконки интерфейса)
+│   └── icons/
+│
+└── tests/                      # Автотесты (unittest)
+    ├── __init__.py
+    ├── test_animation_manager.py
+    ├── test_background.py
+    ├── test_create_editor.py
+    ├── test_exporter.py
+    ├── test_gif_crop_editor.py
+    ├── test_i18n.py
+    ├── test_icon_builder.py
+    ├── test_preview_render.py
+    ├── test_roundtrip.py
+    ├── test_validator.py
+    └── smoke_create_editor.py
 
 ```
 

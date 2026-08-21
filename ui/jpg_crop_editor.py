@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QFormLayout,
+    QSplitter,
 )
 
 from core.image_processor import FlipperImageProcessor
@@ -21,8 +22,7 @@ from ui.i18n import tr, trf
 
 
 class CropPreviewWidget(QWidget):
-    """Превью изображения + перетаскиваемая/растягиваемая рамка crop.
-    """
+    """Превью изображения + перетаскиваемая/растягиваемая рамка crop"""
 
     HANDLE_SIZE_PX = 8
 
@@ -41,20 +41,19 @@ class CropPreviewWidget(QWidget):
         self._output_w: int = 128
         self._output_h: int = 64
 
-        # Crop box в координатах исходного изображения: (left, top, right, bottom)
         self._crop_left = 0
         self._crop_top = 0
         self._crop_right = 1
         self._crop_bottom = 1
 
-        self._drag_mode: str | None = None  # move|l|t|r|b|lt|rt|lb|rb
+        self._source_size: tuple[int, int] | None = None
+
+        self._drag_mode: str | None = None
         self._drag_start_pos_widget: tuple[int, int] | None = None
         self._crop_start: tuple[int, int, int, int] | None = None
 
         self.setMinimumSize(420, 240)
-        self.setStyleSheet(
-            "QWidget { background: #0a0a0a; border: 2px solid #333; color: #666; }"
-        )
+        self.setObjectName("cropPreview")
 
     def set_output_size(self, out_w: int, out_h: int):
         self._output_w = int(out_w)
@@ -82,22 +81,22 @@ class CropPreviewWidget(QWidget):
             self._reset_crop_to_center()
         self.update()
 
+    def set_empty_hint(self, text: str):
+        """Обновить подпись-заглушку превью (например при смене языка)."""
+        self._empty_hint = text
+        if not self._img_pixmap:
+            self.update()
+
     def _reset_crop_to_center(self):
         assert self._img_pixmap is not None
-        src_w = self._img_pixmap.width()
-        src_h = self._img_pixmap.height()
+        src_w, src_h = self._get_source_size()
 
-        # Рамка должна соответствовать выбранному выходному соотношению сторон.
         target_ratio = self._output_w / self._output_h
 
-        # Ищем максимальную рамку внутри изображения с заданным ratio
-        # crop_w / crop_h = target_ratio
         if src_w / src_h >= target_ratio:
-            # ограничение по высоте
             crop_h = src_h
             crop_w = int(round(crop_h * target_ratio))
         else:
-            # ограничение по ширине
             crop_w = src_w
             crop_h = int(round(crop_w / target_ratio))
 
@@ -122,19 +121,45 @@ class CropPreviewWidget(QWidget):
 
     # ---------- Маппинг координат widget -> source ----------
 
+    def _get_source_size(self) -> tuple[int, int]:
+        """Реальный размер исходника в px.
+
+        Если превью-пикмап уменьшен (GIF), используем заданный размер источника,
+        иначе — размер самого пикмапа (JPG-путь: превью == исходник).
+        """
+        if self._img_pixmap is None:
+            return 0, 0
+        if self._source_size is not None:
+            return self._source_size
+        return self._img_pixmap.width(), self._img_pixmap.height()
+
+    def set_source_size(self, src_w: int, src_h: int) -> None:
+        """Задать реальный размер исходника, если превью-пикмап уменьшен.
+
+        Рамка crop хранится и выравнивается в координатах этого размера,
+        а не уменьшенного превью.
+        """
+        if self._img_pixmap is None:
+            return
+        src_w = max(1, int(src_w))
+        src_h = max(1, int(src_h))
+        if self._source_size == (src_w, src_h):
+            return
+        self._source_size = (src_w, src_h)
+        self._reset_crop_to_center()
+        self.update()
+
     def _source_to_widget_rect(self) -> QRect:
         if not self._img_pixmap:
             return QRect(0, 0, 0, 0)
 
-        src_w = self._img_pixmap.width()
-        src_h = self._img_pixmap.height()
+        src_w, src_h = self._get_source_size()
         w = self.width()
         h = self.height()
 
         if src_w <= 0 or src_h <= 0 or w <= 0 or h <= 0:
             return QRect(0, 0, 0, 0)
 
-        # Рисуем image с aspect-fit
         scale = min(w / src_w, h / src_h)
         draw_w = int(round(src_w * scale))
         draw_h = int(round(src_h * scale))
@@ -150,8 +175,7 @@ class CropPreviewWidget(QWidget):
 
     def _widget_point_to_source_point(self, px: int, py: int) -> tuple[int, int]:
         assert self._img_pixmap is not None
-        src_w = self._img_pixmap.width()
-        src_h = self._img_pixmap.height()
+        src_w, src_h = self._get_source_size()
 
         w = self.width()
         h = self.height()
@@ -162,7 +186,6 @@ class CropPreviewWidget(QWidget):
         x0 = (w - draw_w) / 2
         y0 = (h - draw_h) / 2
 
-        # переводим в координаты нарисованной области
         rel_x = (px - x0) / scale
         rel_y = (py - y0) / scale
 
@@ -185,7 +208,6 @@ class CropPreviewWidget(QWidget):
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._empty_hint)
             return
 
-        # aspect-fit draw
         src_w = self._img_pixmap.width()
         src_h = self._img_pixmap.height()
         scale = min(self.width() / src_w, self.height() / src_h)
@@ -199,19 +221,15 @@ class CropPreviewWidget(QWidget):
 
         crop_rect_w = self._source_to_widget_rect()
 
-        # overlay
         painter.setPen(QPen(QColor(0, 200, 255), 2))
         painter.drawRect(crop_rect_w)
 
-        # dim outside rect
         dim = QColor(0, 0, 0, 90)
         painter.fillRect(self.rect(), dim)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
 
-        # вырезаем overlay так, чтобы рамка area была видна
         painter.fillRect(crop_rect_w, QColor(0, 0, 0, 0))
 
-        # handles
         handle_c = QColor(0, 200, 255)
         painter.setBrush(handle_c)
         hs = self.HANDLE_SIZE_PX
@@ -219,7 +237,6 @@ class CropPreviewWidget(QWidget):
         def handle_at(x: int, y: int):
             painter.drawRect(QRect(x - hs // 2, y - hs // 2, hs, hs))
 
-        # corners
         handle_at(crop_rect_w.left(), crop_rect_w.top())
         handle_at(crop_rect_w.right(), crop_rect_w.top())
         handle_at(crop_rect_w.left(), crop_rect_w.bottom())
@@ -233,7 +250,6 @@ class CropPreviewWidget(QWidget):
             return None
 
         hs = self.HANDLE_SIZE_PX
-        # corners
         corners = {
             "lt": (r.left(), r.top()),
             "rt": (r.right(), r.top()),
@@ -244,7 +260,6 @@ class CropPreviewWidget(QWidget):
             if abs(px - cx) <= hs and abs(py - cy) <= hs:
                 return k
 
-        # edges
         if r.adjusted(0, 0, 0, 0).left() <= px <= r.right() and abs(py - r.top()) <= hs:
             return "t"
         if abs(py - r.bottom()) <= hs:
@@ -283,7 +298,6 @@ class CropPreviewWidget(QWidget):
 
         mode = self._hit_test_handle(px, py)
         if not self._drag_mode:
-            # курсоры
             if mode in {"lt", "rb"}:
                 self.setCursor(Qt.CursorShape.SizeFDiagCursor)
             elif mode in {"rt", "lb"}:
@@ -300,21 +314,18 @@ class CropPreviewWidget(QWidget):
         if not self._drag_mode or not self._drag_start_pos_widget or not self._crop_start:
             return
 
-        # Drag actual
         sx, sy = self._widget_point_to_source_point(px, py)
         start_left, start_top, start_right, start_bottom = self._crop_start
 
         left, top, right, bottom = start_left, start_top, start_right, start_bottom
 
         min_size = 2
-        src_w = self._img_pixmap.width()
-        src_h = self._img_pixmap.height()
+        src_w, src_h = self._get_source_size()
 
         def clamp(v: int, a: int, b: int) -> int:
             return max(a, min(b, v))
 
         if self._drag_mode == "move":
-            # move box maintaining size
             psx, psy = self._widget_point_to_source_point(*self._drag_start_pos_widget)
             dx = sx - psx
             dy = sy - psy
@@ -326,7 +337,6 @@ class CropPreviewWidget(QWidget):
             bottom = top + h_box
 
         else:
-            # resize handles
             if self._drag_mode in {"l", "lt", "lb"}:
                 left = clamp(sx, 0, right - min_size)
             if self._drag_mode in {"r", "rt", "rb"}:
@@ -341,7 +351,6 @@ class CropPreviewWidget(QWidget):
             cur_h = max(1, bottom - top)
             cur_ratio = cur_w / cur_h
 
-            # подгоняем по ближнему изменению
             if cur_ratio > target_ratio:
                 new_w = int(round(cur_h * target_ratio))
                 if self._drag_mode in {"l", "lt", "lb"}:
@@ -382,23 +391,35 @@ class JpegCropEditorWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
 
-        # init
         out_w, out_h = sorted(FlipperImageProcessor.VALID_ICON_SIZES)[0]
         self.size_combo.setCurrentText(f"{out_w}x{out_h}")
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        # ── Левая колонка: drag-drop + параметры ──
+        left_panel = QWidget()
+        left_panel.setMinimumWidth(260)
+        left_panel.setMaximumWidth(370)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
 
         # Drag-and-Drop область
         self.drop_area = DragDropArea(
             tr("jpg.drag_title"),
             [".jpg", ".jpeg", ".png"],
         )
-        layout.addWidget(self.drop_area)
+        left_layout.addWidget(self.drop_area)
 
         self.controls_group = QGroupBox(tr("jpg.group_controls"))
         self.controls_layout = QFormLayout(self.controls_group)
+        self.controls_layout.setVerticalSpacing(8)
 
         self.btn_load = QPushButton(tr("jpg.btn_load"))
         self.lbl_loaded = QLabel(tr("jpg.loaded_default"))
@@ -416,23 +437,39 @@ class JpegCropEditorWidget(QWidget):
         self.controls_layout.addRow(tr("jpg.lbl_output_size"), self.size_combo)
         self.controls_layout.addRow("", self.btn_export)
 
-        layout.addWidget(self.controls_group)
+        left_layout.addWidget(self.controls_group)
+        left_layout.addStretch(1)
+        splitter.addWidget(left_panel)
 
+        # ── Правая колонка: превью + подсказка ──
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
 
         self.preview_group = QGroupBox(tr("jpg.group_preview"))
         preview_layout = QVBoxLayout(self.preview_group)
+        preview_layout.setContentsMargins(8, 8, 8, 8)
 
         self.preview_widget = CropPreviewWidget(empty_hint=tr("jpg.preview_hint"))
-        preview_layout.addWidget(self.preview_widget)
+        preview_layout.addWidget(self.preview_widget, 1)
 
         self.lbl_hint = QLabel(tr("jpg.lbl_hint"))
         self.lbl_hint.setWordWrap(True)
-        layout.addWidget(self.preview_group)
         preview_layout.addWidget(self.lbl_hint)
+
+        right_layout.addWidget(self.preview_group, 1)
+        splitter.addWidget(right_panel)
+
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 760])
+        layout.addWidget(splitter, 1)
 
     def retranslate(self):
         """Обновляет тексты при смене языка."""
         self.drop_area.set_text(tr("jpg.drag_title"))
+        self.preview_widget.set_empty_hint(tr("jpg.preview_hint"))
         self.controls_group.setTitle(tr("jpg.group_controls"))
         self.btn_load.setText(tr("jpg.btn_load"))
         self.btn_export.setText(tr("jpg.btn_export"))
@@ -441,7 +478,6 @@ class JpegCropEditorWidget(QWidget):
         self.controls_layout.labelForField(self.size_combo).setText(tr("jpg.lbl_output_size"))
         self.preview_group.setTitle(tr("jpg.group_preview"))
         self.lbl_hint.setText(tr("jpg.lbl_hint"))
-        # Поле "Загружено": сбрасываем к локализованному значению, если файл не загружен
         if not self._input_path:
             self.lbl_loaded.setText(tr("jpg.loaded_default"))
         elif self.preview_widget._img_pixmap is None:
@@ -497,7 +533,6 @@ class JpegCropEditorWidget(QWidget):
         self.preview_widget.set_output_size(out_w, out_h)
         self.preview_widget.set_image(path)
 
-        # Если файл не читается — сбрасываем состояние
         if self.preview_widget._img_pixmap is None:
             self._input_path = None
             self.lbl_loaded.setText(tr("jpg.loaded_error"))
@@ -532,7 +567,6 @@ class JpegCropEditorWidget(QWidget):
         )
 
 
-        # Обновим превью (перерисовка рамки уже есть)
         self.preview_widget.update()
 
 
