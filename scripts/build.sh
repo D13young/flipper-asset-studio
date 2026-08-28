@@ -20,6 +20,18 @@ pip install pyinstaller
 echo "→ Собираю onefile-исполняемый файл (иконка и ресурсы внутри)…"
 pyinstaller --clean --noconfirm FlipperAssetStudio.spec
 
+# На macOS PyInstaller может снять бит выполнения и оставить подпись без
+# adhoc-кода, из-за чего .app не запускается ("Launchd job spawn failed").
+chmod +x dist/FlipperAssetStudio 2>/dev/null || true
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    echo "→ Ad-hoc подписываю бинарник (необходимо для запуска на Apple Silicon)"
+    codesign --force --sign - dist/FlipperAssetStudio
+    if [ -d "dist/FlipperAssetStudio.app" ]; then
+        codesign --force --deep --sign - "dist/FlipperAssetStudio.app"
+    fi
+fi
+
 echo ""
 echo "✔ Готово:"
 ls -la dist/
