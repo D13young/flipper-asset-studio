@@ -248,6 +248,25 @@ QToolButton#themeBtn:pressed, QToolButton#langBtn:pressed {{
     background-color: {C["overlay"]};
 }}
 
+QToolButton#menuBtn {{
+    background-color: {C["surface"]};
+    color: {C["blue"]};
+    border: 1px solid {C["overlay"]};
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-weight: 700;
+}}
+
+QToolButton#menuBtn:hover {{
+    background-color: {C["overlay"]};
+    color: {C["text"]};
+}}
+
+QToolButton#menuBtn:pressed {{
+    background-color: {C["blue"]};
+    color: {C["crust"]};
+}}
+
 QPushButton {{
     background-color: {C["blue"]};
     color: {C["crust"]};

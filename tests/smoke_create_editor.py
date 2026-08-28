@@ -38,6 +38,28 @@ class TestCreateEditorSmoke(unittest.TestCase):
         QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p)
         self.assertEqual(self.w.frames_pixels[0][5][5], 1)
 
+    def test_pencil_stroke_repaints_during_drag(self):
+        """Карандаш должен перерисовывать холст сразу, пока кнопка ещё зажата (без задержки до отпускания)."""
+        from unittest import mock
+
+        self.canvas.set_brush_size(1)
+        self.canvas.set_tool(self.canvas.TOOL_PENCIL)
+        p1 = _screen_pos(self.canvas, 3, 3)
+        p2 = _screen_pos(self.canvas, 10, 6)
+        with mock.patch.object(self.canvas, "update", wraps=self.canvas.update) as m:
+            QTest.mousePress(self.canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p1)
+            press_repaints = m.call_count
+            QTest.mouseMove(self.canvas, p2, 50)
+            move_repaints = m.call_count
+            self.assertGreater(
+                move_repaints, press_repaints,
+                "Линия карандаша должна появляться ещё во время ведения, а не после отпускания",
+            )
+            QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p2)
+        frame = self.w.frames_pixels[0]
+        self.assertEqual(frame[3][3], 1)
+        self.assertEqual(frame[6][10], 1)
+
     def test_rect_drag_applies_fill(self):
         self.canvas.set_tool(self.canvas.TOOL_RECT)
         self.canvas.set_fill_shapes(True)

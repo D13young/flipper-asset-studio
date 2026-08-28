@@ -8,8 +8,8 @@ LANG_RU = "ru"
 LANG_EN = "en"
 
 LANGUAGES = {
-    LANG_RU: "Русский",
-    LANG_EN: "English",
+    LANG_RU: "РУ",
+    LANG_EN: "EN",
 }
 
 LANGUAGE_ORDER = [LANG_RU, LANG_EN]
@@ -44,6 +44,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "tb.language": "Язык",
         "tb.theme_tip": "Сменить тему оформления",
         "tb.language_tip": "Сменить язык интерфейса",
+        "tb.menu": "Меню",
+        "tb.menu_show": "Показать меню навигации",
+        "tb.menu_hide": "Скрыть меню навигации",
 
         "app.title": "Flipper Asset Studio",
 
@@ -229,6 +232,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "tb.language": "Language",
         "tb.theme_tip": "Change the color theme",
         "tb.language_tip": "Change the interface language",
+        "tb.menu": "Menu",
+        "tb.menu_show": "Show navigation menu",
+        "tb.menu_hide": "Hide navigation menu",
 
         "app.title": "Flipper Asset Studio",
 

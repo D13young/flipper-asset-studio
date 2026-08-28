@@ -674,6 +674,7 @@ class PixelCanvas(QWidget):
                     self._paint_stroke(last[0], last[1], x, y, self._paint_mode)
                     self.end_batch()
                     self._last_painted = (x, y)
+                    self.update()  # репейнт холста сразу, пока карандаш ещё нажат
             else:
                 self._shape_cur = (x, y)
                 self.update()
@@ -862,7 +863,7 @@ class CreateEditorWidget(QWidget):
         # ── Правая колонка: холст + статус + кадры ──
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setContentsMargins(12, 12, 0, 0)
         right_layout.setSpacing(8)
 
         self.canvas_group = QGroupBox(tr("create.group_canvas"))
@@ -884,14 +885,18 @@ class CreateEditorWidget(QWidget):
         frames_layout.setSpacing(6)
 
         self.frame_list = QListWidget()
+        self.frame_list.setObjectName("createFrameList")
         self.frame_list.setViewMode(QListWidget.ViewMode.IconMode)
         self.frame_list.setFlow(QListWidget.Flow.LeftToRight)
         self.frame_list.setWrapping(False)
         self.frame_list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.frame_list.setMovement(QListWidget.Movement.Static)
         self.frame_list.setIconSize(QSize(64, 32))
-        self.frame_list.setGridSize(QSize(84, 56))
-        self.frame_list.setFixedHeight(76)
+        self.frame_list.setGridSize(QSize(84, 64))
+        self.frame_list.setFixedHeight(84)
+        # Меньший внутренний padding (чем глобальный 10px/14px) только для киноленты,
+        # чтобы подпись «Кадр N» не наезжала на рамку миниатюры.
+        self.frame_list.setStyleSheet("QListWidget::item { padding: 6px 12px; }")
         frames_layout.addWidget(self.frame_list)
 
         btn_row = QHBoxLayout()

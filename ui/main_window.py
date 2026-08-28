@@ -9,12 +9,13 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 
 from PyQt6.QtCore import Qt, QSize, QTimer, QSettings
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPixmap
 from pathlib import Path
 
 from ui.styles import load_qss, THEME_NAMES, DEFAULT_THEME
 from ui.i18n import tr, trf, set_language, get_language, LANGUAGE_ORDER, LANGUAGES
 from ui.background import BackgroundRunner
+from ui.resources import app_icon, app_logo_pixmap, resource_path
 
 
 
@@ -28,9 +29,54 @@ from ui.drag_drop_widget import DragDropArea
 from ui.validator_widget import ValidatorWidget
 
 
+class _ScaledPreviewLabel(QLabel):
+
+    MARGIN = 6
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._source = QPixmap()
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(300, 192)
+
+    def setPixmap(self, pixmap: QPixmap | None) -> None:
+        if pixmap is None:
+            self.clear()
+            return
+        self._source = QPixmap(pixmap)
+        super().setText("")
+        self._apply_scaled()
+
+    def setText(self, text: str) -> None:
+        if self._source.isNull():
+            super().setText(text)
+
+    def clear(self) -> None:
+        self._source = QPixmap()
+        super().clear()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_scaled()
+
+    def _apply_scaled(self) -> None:
+        if self._source.isNull() or self.width() <= 0 or self.height() <= 0:
+            return
+        avail_w = max(self.width() - 2 * self.MARGIN, 8)
+        avail_h = max(self.height() - 2 * self.MARGIN, 8)
+        scaled = self._source.scaled(
+            avail_w,
+            avail_h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        super().setPixmap(scaled)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setWindowIcon(app_icon())
         self.setWindowTitle(tr("app.title"))
         self.resize(1280, 840)
 
@@ -86,7 +132,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
+        splitter.setChildrenCollapsible(True)
+        self.main_splitter = splitter
+        self._nav_collapsed = False
+        self._nav_width = 220
         
         # --- Левая панель (Навигация) ---
         self.nav_list = QListWidget()
@@ -158,14 +207,13 @@ class MainWindow(QMainWindow):
         sl.addWidget(self.single_settings_group)
 
         # 2. Вкладка: Animation
-        self.anim_preview = QLabel()
+        self.anim_preview = _ScaledPreviewLabel()
         self.anim_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.anim_preview.setMinimumSize(300, 192)
         self.anim_preview.setText(tr("anim.preview_hint"))
 
         shadow = QGraphicsDropShadowEffect(self.anim_preview)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 3)
+        shadow.setBlurRadius(12)
+        shadow.setOffset(0, 0)
         shadow.setColor(Qt.GlobalColor.black)
         self.anim_preview.setGraphicsEffect(shadow)
 
@@ -179,23 +227,36 @@ class MainWindow(QMainWindow):
         anim_split = QSplitter(Qt.Orientation.Horizontal)
         anim_split.setChildrenCollapsible(False)
 
-        # Слева — карточка предпросмотра анимации
+        # Слева — drag-and-drop область кадров (ближе к верху левого блока)
         anim_left = QWidget()
+        self.anim_left = anim_left
         anim_left_layout = QVBoxLayout(anim_left)
         anim_left_layout.setContentsMargins(0, 0, 0, 0)
-        self.anim_preview_group = QGroupBox(tr("anim.group_preview"))
-        apg = QVBoxLayout(self.anim_preview_group)
-        apg.setContentsMargins(6, 6, 6, 6)
-        apg.addWidget(self.anim_preview)
-        anim_left_layout.addWidget(self.anim_preview_group, 1)
+        anim_left_layout.setSpacing(8)
+        anim_left_layout.addWidget(self.anim_timeline.drop_area, 0)
+        anim_left_layout.addStretch(1)
         anim_left.setMaximumWidth(420)
         anim_split.addWidget(anim_left)
 
-        # Справа — таймлайн с кадрами и параметрами
-        anim_split.addWidget(self.anim_timeline)
+        # Справа — предпросмотр над кадрами и параметрами
+        anim_right = QWidget()
+        self.anim_right = anim_right
+        anim_right_layout = QVBoxLayout(anim_right)
+        anim_right_layout.setContentsMargins(0, 0, 0, 0)
+        anim_right_layout.setSpacing(8)
+
+        self.anim_preview_group = QGroupBox(tr("anim.group_preview"))
+        apg = QVBoxLayout(self.anim_preview_group)
+        apg.setContentsMargins(10, 8, 10, 10)
+        apg.addWidget(self.anim_preview, 1)
+        anim_right_layout.addWidget(self.anim_preview_group, 0)
+
+        anim_right_layout.addWidget(self.anim_timeline, 1)
+        anim_split.addWidget(anim_right)
+
         anim_split.setStretchFactor(0, 0)
         anim_split.setStretchFactor(1, 1)
-        anim_split.setSizes([320, 900])
+        anim_split.setSizes([280, 900])
         al.addWidget(anim_split, 1)
 
         # 3. Вкладка: Meta
@@ -295,7 +356,7 @@ class MainWindow(QMainWindow):
         # Сборка табов
         self.tabs = QTabWidget()
 
-        icons_dir = Path(__file__).resolve().parent.parent / "assets" / "icons"
+        icons_dir = resource_path("assets/icons")
 
         tab_defs = [
             (tab_create, tr("tab.create"), icons_dir / "create.svg"),
@@ -326,6 +387,8 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
+        splitter.setCollapsible(0, True)
+        splitter.setCollapsible(1, False)
         layout.addWidget(splitter)
         layout.setStretch(0, 1)
 
@@ -335,7 +398,14 @@ class MainWindow(QMainWindow):
         tb.setFixedHeight(36)
         self.addToolBar(tb)
 
-        icons_dir = Path(__file__).resolve().parent.parent / "assets" / "icons"
+        self.brand_logo = QLabel()
+        self.brand_logo.setPixmap(app_logo_pixmap(22))
+        self.brand_logo.setFixedSize(22, 22)
+        tb.addWidget(self.brand_logo)
+
+        tb.addSeparator()
+
+        icons_dir = resource_path("assets/icons")
 
         def _icon(name: str) -> QIcon | None:
             p = icons_dir / name
@@ -368,11 +438,20 @@ class MainWindow(QMainWindow):
 
         self.btn_exit.setFixedWidth(90)
 
+        self.btn_menu = QToolButton()
+        self.btn_menu.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.btn_menu.setObjectName("menuBtn")
+        self.btn_menu.setFixedWidth(96)
+        self.btn_menu.setStatusTip(tr("tb.menu_hide"))
+        self.btn_menu.clicked.connect(self._toggle_nav_menu)
+
         tb.addWidget(self.btn_import)
         tb.addSeparator()
         tb.addWidget(self.btn_export)
         tb.addSeparator()
         tb.addWidget(self.btn_exit)
+        tb.addSeparator()
+        tb.addWidget(self.btn_menu)
 
         # --- Справа: кнопка смены темы ---
         spacer = QWidget()
@@ -396,7 +475,7 @@ class MainWindow(QMainWindow):
         self.theme_btn.setMenu(self.theme_menu)
         tb.addWidget(self.theme_btn)
 
-        # --- Справа: кнопка смены языка (рядом с кнопкой Theme) ---
+        # --- Справа: кнопка смены языка ---
         self.lang_btn = QToolButton()
         self.lang_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.lang_btn.setObjectName("langBtn")
@@ -429,7 +508,6 @@ class MainWindow(QMainWindow):
         set_language(lang)
         for lid, action in self.lang_actions.items():
             action.setChecked(lid == lang)
-        # Кнопка показывает название текущего языка
         self.lang_btn.setText(LANGUAGES[lang])
         self.retranslate()
         # Переводим дочерние виджеты
@@ -488,6 +566,8 @@ class MainWindow(QMainWindow):
         self.bm_bmx_preview_drop.set_text(tr("bm.drop_title"))
         self.bm_bmx_preview_label.setText(tr("bm.preview_hint"))
         self.bm_bmx_group.setTitle(tr("bm.group_preview"))
+        # Кнопка сворачивания меню — обновляем подпись/подсказки
+        self._update_menu_button_state()
 
     def _load_saved_theme(self) -> str:
         saved = self.settings.value("ui/theme", DEFAULT_THEME)
@@ -509,6 +589,30 @@ class MainWindow(QMainWindow):
     def _setup_statusbar(self):
         self.statusBar().showMessage(tr("status.ready"))
 
+    # --- Сворачивание левого меню (кнопка + перетаскивание разделителя) ---
+    def _toggle_nav_menu(self):
+        """Показывает/скрывает левую панель навигации."""
+        if self.nav_list.isHidden():
+            self.nav_list.show()
+            self.main_splitter.setSizes([
+                self._nav_width or 220,
+                max(self.main_splitter.sizes()[1], 400),
+            ])
+        else:
+            self._nav_width = max(self.nav_list.width(), 140)
+            self.nav_list.hide()
+        self._update_menu_button_state()
+
+    def _update_menu_button_state(self):
+        width_based = self.nav_list.isVisible() and self.nav_list.width() <= 2
+        collapsed = self.nav_list.isHidden() or width_based
+        self._nav_collapsed = collapsed
+        arrow = "▶ " if collapsed else "◀ "
+        self.btn_menu.setText(arrow + tr("tb.menu"))
+        tip_key = "tb.menu_show" if collapsed else "tb.menu_hide"
+        self.btn_menu.setToolTip(tr(tip_key))
+        self.btn_menu.setStatusTip(tr(tip_key))
+
     def _connect_signals(self):
         # Кнопки
         self.btn_import.clicked.connect(self._import_png)
@@ -521,6 +625,7 @@ class MainWindow(QMainWindow):
         
         # Навигация
         self.nav_list.currentRowChanged.connect(self.tabs.setCurrentIndex)
+        self.main_splitter.splitterMoved.connect(lambda *_: self._update_menu_button_state())
         
         # Таймлайн -> Превью и Мета
         self.anim_timeline.frames_updated.connect(self._on_anim_frames_updated)
@@ -610,6 +715,7 @@ class MainWindow(QMainWindow):
             self._restart_animation()
         else:
             self.anim_timer.stop()
+            self.anim_preview.clear()
             self.anim_preview.setText(tr("anim.preview_hint_short"))
 
     def _restart_animation(self):

@@ -4,6 +4,21 @@
 
 ---
 
+## ⬇️ Скачать готовые сборки
+
+> Готовые исполняемые файлы публикуются в разделе **[Releases](https://github.com/D13young/flipper-asset-studio/releases)** репозитория:
+
+| Платформа | Исполняемый файл |
+|-----------|------------------|
+| 🪟 Windows | [`FlipperAssetStudio.exe`](https://github.com/D13young/flipper-asset-studio/releases) |
+| 🍎 macOS   | [`FlipperAssetStudio.app`](https://github.com/D13young/flipper-asset-studio/releases) |
+| 🐧 Linux   | [`FlipperAssetStudio`](https://github.com/D13young/flipper-asset-studio/releases) |
+
+> Исполняемый файл собирается как **one-file**: иконка и все ресурсы упакованы внутри.
+> Собрать вручную можно по инструкции в разделе [Сборка исполняемого файла](#-сборка-исполняемого-файла).
+
+---
+
 ## 🌟 Возможности
 
 ### 🎬 Редактор анимаций
@@ -47,12 +62,24 @@
 
 ---
 
+## 🛠️ Стек технологий
+
+- **Язык**: Python 3.10+
+- **GUI-фреймворк**: PyQt6 (Qt6)
+- **Обработка изображений**: Pillow (PIL), NumPy
+- **Сжатие**: heatshrink2 (формат `.bmx`, Heatshrink)
+- **Сборка**: PyInstaller (`FlipperAssetStudio.spec`)
+- **Тестирование**: unittest (stdlib) + pytest
+- **Интернационализация**: собственная i18n-система (RU / EN)
+
+---
+
 ## 🚀 Установка
 
 ### 1. Клонируйте репозиторий
 ```bash
-git clone https://github.com/yourusername/flipper_asset_studio.git
-cd flipper_asset_studio
+git clone https://github.com/D13young/flipper-asset-studio.git
+cd flipper-asset-studio
 ```
 
 ### 2. Создайте виртуальное окружение (рекомендуется)
@@ -129,12 +156,13 @@ python main.py
 ## 🏗️ Структура проекта
 
 ```
-flipper_asset_studio/
+flipper-asset-studio/
 ├── main.py                     # Точка входа в приложение (GUI)
+├── FlipperAssetStudio.spec     # Конфигурация сборки PyInstaller
 ├── requirements.txt            # Зависимости для запуска
 ├── requirements-dev.txt        # Зависимости для разработки и тестов
 ├── README.md                   # Документация
-├── main.spec, FASt.spec        # Конфигурации сборки PyInstaller
+├── .gitignore
 │
 ├── core/                       # Логика: обработка изображений/экспорт/валидация
 │   ├── __init__.py
@@ -145,12 +173,13 @@ flipper_asset_studio/
 │   ├── image_processor.py      # PNG -> 1-bit, дизеринг, ресайз/центрирование
 │   └── validator.py            # Проверка структуры asset pack
 │
-├── ui/                         # UI (Qt)
+├── ui/                         # UI (PyQt6)
 │   ├── __init__.py
 │   ├── main_window.py          # Главное окно
 │   ├── styles.py               # Стили и оформление интерфейса
 │   ├── background.py           # Фоновые декоративные элементы
-│   ├── i18n.py                 # Интернационализация (переводы)
+│   ├── i18n.py                 # Интернационализация (RU / EN)
+│   ├── resources.py            # Управление ресурсами (иконки/логотип в рантайме)
 │   ├── animation_timeline.py   # Таймлайн/управление кадрами
 │   ├── icon_editor.py          # Редактор иконок
 │   ├── gif_crop_editor.py      # GIF → PNG (кадрирование анимации)
@@ -160,10 +189,13 @@ flipper_asset_studio/
 │   └── create_editor.py        # Редактор/страницы создания
 │
 ├── scripts/
-│   └── asset_packer.py         # Утилита упаковки/создания asset pack
+│   ├── asset_packer.py         # Утилита упаковки/создания asset pack
+│   ├── build.sh                # Сборка исполняемого файла (macOS/Linux)
+│   └── build_windows.bat       # Сборка исполняемого файла (Windows)
 │
-├── assets/                     # Ресурсы приложения (SVG-иконки интерфейса)
-│   └── icons/
+├── assets/                     # Ресурсы приложения
+│   ├── icons/                  # SVG-иконки интерфейса
+│   └── logo/                   # Логотип (png/ico/icns)
 │
 └── tests/                      # Автотесты (unittest)
     ├── __init__.py
@@ -174,6 +206,7 @@ flipper_asset_studio/
     ├── test_gif_crop_editor.py
     ├── test_i18n.py
     ├── test_icon_builder.py
+    ├── test_main_window.py
     ├── test_preview_render.py
     ├── test_roundtrip.py
     ├── test_validator.py
@@ -225,22 +258,46 @@ MyAssetPack/
 
 ### Сборка исполняемого файла
 
-**Windows:**
+Сборка создаёт **один автономный исполняемый файл** (без дополнительных папок):
+логотип и все ресурсы упаковываются внутрь бинарника, иконка `.ico`/`.icns`
+встраивается в сам исполняемый файл, а в окне/панели задач логотип
+отображается в рантайме.
+
+Файлы логотипа: `assets/logo/fast_logo.png` (рантайм),
+`assets/logo/fast_logo.ico` (Windows), `assets/logo/fast_logo.icns` (macOS).
+
+**Автоматически (рекомендуется):**
+
+- **Windows:** запустите `scripts\build_windows.bat`
+  → результат `dist\FlipperAssetStudio.exe`
+- **macOS / Linux:** запустите `./scripts/build.sh`
+  → macOS: `dist/FlipperAssetStudio.app`; Linux: `dist/FlipperAssetStudio`
+
+**Вручную:**
+
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name "FlipperAssetStudio" main.py
+pyinstaller --clean --noconfirm FlipperAssetStudio.spec
 ```
 
-**macOS:**
+или напрямую от CLI:
+
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name "FlipperAssetStudio" --icon=assets/icon.icns main.py
+# Windows
+pyinstaller --onefile --windowed --name "FlipperAssetStudio" ^
+  --icon=assets/logo/fast_logo.ico --add-data "assets;assets" main.py
 ```
 
-**Linux:**
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name "FlipperAssetStudio" --icon=assets/icon.png main.py
+# macOS
+pyinstaller --onefile --windowed --name "FlipperAssetStudio" \
+  --icon=assets/logo/fast_logo.icns --add-data "assets:assets" main.py
+```
+
+```bash
+# Linux
+pyinstaller --onefile --windowed --name "FlipperAssetStudio" \
+  --add-data "assets:assets" main.py
 ```
 
 ---

@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QMessageBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
 
 from core.animation_manager import FlipperAnimationManager
 from core.image_processor import FlipperImageProcessor
@@ -38,26 +38,27 @@ class AnimationTimelineWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(8)
 
-        # ── Карточка «Кадры»: drag-drop + кинолента + кнопки ──
+        # Карточка «Кадры»: drag-drop + кинолента + кнопки
         self.frames_group = QGroupBox(tr("anim.group_frames"))
         frames_layout = QVBoxLayout(self.frames_group)
         frames_layout.setSpacing(6)
         frames_layout.setContentsMargins(8, 8, 8, 8)
 
-        # Drag-and-Drop область для кадров
-        # кадры добавляются в FlipperAnimationManager и автоматически триггерят обновление UI/preview/meta.
         self.drop_area = DragDropArea(tr("anim.drag_title"), [".png"])
         self.drop_area.files_dropped.connect(self._on_frames_dropped)
-        frames_layout.addWidget(self.drop_area, 0)
 
         # Список кадров
         self.frame_list = QListWidget()
-        from PyQt6.QtCore import QSize
+        self.frame_list.setObjectName("animFrameList")
+        self.frame_list.setViewMode(QListWidget.ViewMode.IconMode)
+        self.frame_list.setFlow(QListWidget.Flow.LeftToRight)
+        self.frame_list.setWrapping(False)
+        self.frame_list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.frame_list.setMovement(QListWidget.Movement.Static)
         self.frame_list.setIconSize(QSize(96, 48))
-        from PyQt6.QtWidgets import QListView
-        self.frame_list.setFlow(QListView.Flow.LeftToRight)
-        self.frame_list.setSpacing(4)
-        self.frame_list.setFixedHeight(120)
+        self.frame_list.setGridSize(QSize(116, 82))
+        self.frame_list.setFixedHeight(96)
+        self.frame_list.setStyleSheet("QListWidget::item { padding: 4px 10px; }")
 
         frames_layout.addWidget(self.frame_list, 1)
 
