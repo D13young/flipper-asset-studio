@@ -56,11 +56,13 @@ jobs:
           mv dist/FlipperAssetStudio dist/FlipperAssetStudio_Linux_x86_64
 
       # ── macOS: .app (bundle) + raw onefile binary ──
-      # Раннер macos-14 — Intel (x86_64): на Apple Silicon работает через Rosetta 2,
-      # нативный arm64 собирается локально (./scripts/build.sh).
+      # GitHub-hosted macOS runners — Apple Silicon (arm64); имя артефакта
+      # формируем из фактической архитектуры (uname -m).
       - name: Build macOS
         if: runner.os == 'macOS'
         run: |
+          ARCH="$(uname -m)"
+          echo "Building for host arch: ${ARCH}"
           pyinstaller --clean --noconfirm --onefile --windowed \
             --name "FlipperAssetStudio" \
             --icon=assets/logo/fast_logo.icns \
@@ -72,8 +74,8 @@ jobs:
           if [ -d dist/FlipperAssetStudio.app ]; then
             codesign --force --deep --sign - dist/FlipperAssetStudio.app
           fi
-          mv dist/FlipperAssetStudio dist/FlipperAssetStudio_macOS_x86_64
-          ditto -c -k --keepParent dist/FlipperAssetStudio.app dist/FlipperAssetStudio_macOS_x86_64.app.zip
+          mv dist/FlipperAssetStudio "dist/FlipperAssetStudio_macOS_${ARCH}"
+          ditto -c -k --keepParent dist/FlipperAssetStudio.app "dist/FlipperAssetStudio_macOS_${ARCH}.app.zip"
           rm -rf dist/FlipperAssetStudio.app
 
       - name: Upload build artifacts

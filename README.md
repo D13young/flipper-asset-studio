@@ -11,14 +11,14 @@
 | Платформа | Исполняемый файл |
 |-----------|------------------|
 | 🪟 Windows | [`FlipperAssetStudio_Windows_x86_64.exe`](https://github.com/D13young/flipper-asset-studio/releases) |
-| 🍎 macOS   | [`FlipperAssetStudio_macOS_x86_64.app.zip`](https://github.com/D13young/flipper-asset-studio/releases) |
+| 🍎 macOS   | [`FlipperAssetStudio_macOS_arm64.app.zip`](https://github.com/D13young/flipper-asset-studio/releases) |
 | 🐧 Linux   | [`FlipperAssetStudio_Linux_x86_64`](https://github.com/D13young/flipper-asset-studio/releases) |
 
 > Исполняемый файл собирается как **one-file**: иконка и все ресурсы упакованы внутри.
 > Сборки создаются автоматически через **GitHub Actions** при каждом теге `v*` —
 > см. [release.yml](.github/workflows/release.yml).
-> macOS-сборка из CI — Intel (x86_64), на Apple Silicon работает через Rosetta 2;
-> нативный arm64 можно собрать локально по инструкции
+> macOS-сборка из CI — нативная **arm64** (Apple Silicon); на Intel-мак она
+> работает через Rosetta 2. Также можно собрать локально по инструкции
 > [Сборка исполняемого файла](#-сборка-исполняемого-файла).
 
 ---
