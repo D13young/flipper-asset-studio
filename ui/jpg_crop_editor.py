@@ -17,8 +17,22 @@ from PyQt6.QtWidgets import (
 )
 
 from core.image_processor import FlipperImageProcessor
+from core.icon_builder import ICON_PRESETS
 from ui.drag_drop_widget import DragDropArea
 from ui.i18n import tr, trf
+
+
+def _icon_preset_size_hints() -> dict[tuple[int, int], list[str]]:
+    """Обратная карта пресетов Icons: размер -> список описаний 'Folder: file'.
+
+    Используется в JPG Crop, чтобы показать в списке Output Size все размеры
+    из вкладки Icons и подсказать (тултипом), каким файлам они соответствуют.
+    """
+    hints: dict[tuple[int, int], list[str]] = {}
+    for folder, files in ICON_PRESETS.items():
+        for file_name, (w, h) in files.items():
+            hints.setdefault((w, h), []).append(f"{folder}: {file_name}")
+    return hints
 
 
 class CropPreviewWidget(QWidget):
@@ -426,9 +440,22 @@ class JpegCropEditorWidget(QWidget):
         self.lbl_loaded.setWordWrap(True)
 
         self.size_combo = QComboBox()
-        fixed_sizes_sorted = sorted(FlipperImageProcessor.VALID_ICON_SIZES, key=lambda p: (p[0], p[1]))
-        for w, h in fixed_sizes_sorted:
+        # Стандартные размеры + размеры из пресетов Icons
+        # (Dolphin/NFC/RFID/SubGhz/Passport), без дубликатов.
+        preset_hints = _icon_preset_size_hints()
+        all_sizes = sorted(
+            set(FlipperImageProcessor.VALID_ICON_SIZES) | set(preset_hints.keys()),
+            key=lambda p: (p[0], p[1]),
+        )
+        for w, h in all_sizes:
             self.size_combo.addItem(f"{w}x{h}", userData=(w, h))
+            hints = preset_hints.get((w, h))
+            if hints:
+                self.size_combo.setItemData(
+                    self.size_combo.count() - 1,
+                    "Icons: " + ", ".join(hints),
+                    Qt.ItemDataRole.ToolTipRole,
+                )
 
         self.btn_export = QPushButton(tr("jpg.btn_export"))
 

@@ -881,7 +881,11 @@ class MainWindow(QMainWindow):
         return trf("msg.create_exported", count=len(frames_pixels_list), folder=out_dir)
 
     def _export_icons_pack(self, out_dir: Path) -> str:
-        """Экспорт passport-иконок: out_dir/Passport/<basename>.bmx."""
+        """Экспорт иконок: out_dir/<Name>/<file_basename>.bmx.
+
+        Name — папка приложения, выбранная во вкладке Icons
+        (Dolphin, NFC, Passport, RFID, SubGhz); File — имя файла внутри неё.
+        """
         count = self.icon_editor.frame_list.count()
         if count == 0:
             raise ValueError(tr("msg.no_icon_frames"))
@@ -897,7 +901,10 @@ class MainWindow(QMainWindow):
 
         w = self.icon_editor.spin_w.value()
         h = self.icon_editor.spin_h.value()
-        base_app = (self.icon_editor.app_name_edit.text() or "").strip().lower()
+        folder_name = (self.icon_editor.name_cb.currentText() or "").strip()
+        if not folder_name:
+            raise ValueError(tr("msg.no_icon_folder"))
+        file_basename = (self.icon_editor.file_cb.currentText() or "").strip() or "icon"
         dither_level = int(self.icon_editor.dither_cb.currentText().split(" ")[0])
 
         frame_bytes_list = [
@@ -907,14 +914,8 @@ class MainWindow(QMainWindow):
             for p in paths
         ]
 
-        if base_app == "passport":
-            file_basename = "passport_128x64"
-        elif base_app in {"passport_bad", "passport_happy", "passport_okay"}:
-            file_basename = f"{base_app}_46x49"
-        else:
-            file_basename = "icon"
-
-        target_folder = out_dir / "Passport"
+        # Папка с именем выбранного приложения (Name), например out_dir/SubGhz
+        target_folder = out_dir / folder_name
         FlipperIconBuilder.export_icon(
             frame_bytes_list,
             w, h, 1,
@@ -924,4 +925,4 @@ class MainWindow(QMainWindow):
             frames_paths=paths,
             dither_level=dither_level,
         )
-        return trf("msg.icon_exported", name=file_basename)
+        return trf("msg.icon_exported", folder=folder_name, name=file_basename)

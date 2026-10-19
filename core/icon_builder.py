@@ -1,8 +1,38 @@
+from __future__ import annotations
+
 import struct
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Tuple
 from core.image_processor import FlipperImageProcessor
 from core.exporter import FlipperExporter
+
+# Пресеты иконок для вкладки Icons:
+#   папка приложения (Name) -> {имя файла (File) -> (ширина, высота)}.
+# При выборе папки экспорта создаётся папка с этим именем
+# (например out_dir/SubGhz/), а файлы именуются как в File
+# (например Fishing_123x52.bmx).
+ICON_PRESETS: Dict[str, Dict[str, Tuple[int, int]]] = {
+    "Dolphin": {
+        "DolphinSuccess_91x55": (91, 55),
+    },
+    "NFC": {
+        "NFC_dolphin_emulation_51x64": (51, 64),
+    },
+    "RFID": {
+        "RFIDDolphinReceive_97x61": (97, 61),
+        "RFIDDolphinSend_97x61": (97, 61),
+    },
+    "SubGhz": {
+        "Fishing_123x52": (123, 52),
+        "Scanning_123x52": (123, 52),
+    },
+    "Passport": {
+        "passport_128x64": (128, 64),
+        "passport_bad_46x49": (46, 49),
+        "passport_happy_46x49": (46, 49),
+        "passport_okay_46x49": (46, 49),
+    },
+}
 
 
 class FlipperIconBuilder:

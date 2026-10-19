@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QGroupBox,
     QFormLayout,
-    QLineEdit,
     QFileDialog,
     QComboBox,
     QToolButton,
@@ -22,6 +21,7 @@ from PyQt6.QtGui import QIcon
 from pathlib import Path
 
 from core.image_processor import FlipperImageProcessor
+from core.icon_builder import ICON_PRESETS
 from ui.drag_drop_widget import DragDropArea
 from ui.i18n import tr
 
@@ -36,6 +36,10 @@ class IconEditorWidget(QWidget):
 
     def _on_dither_changed(self):
         """При переключении дизеринга пересчитываем bytes/preview для всех загруженных кадров."""
+        self._reprocess_frames()
+
+    def _reprocess_frames(self):
+        """Пересчитывает bytes/preview всех загруженных кадров под текущие W/H и дизеринг."""
         w = int(self.spin_w.value())
         h = int(self.spin_h.value())
         dither_level = int(self.dither_cb.currentText().split(" ")[0])
@@ -94,13 +98,15 @@ class IconEditorWidget(QWidget):
         self.settings_layout = QFormLayout(self.settings_group)
         self.settings_layout.setVerticalSpacing(8)
 
-        self.app_name_edit = QLineEdit("passport")
-        self.app_name_edit.setEnabled(False)
+        # Name — папка приложения, в которую экспортируются файлы иконок
+        self.name_cb = QComboBox()
+        self.name_cb.addItems(list(ICON_PRESETS.keys()))
+        self.name_cb.setCurrentText("Passport")
+        self.name_cb.setToolTip(tr("icon.tip_app_name"))
 
-        self.passport_kind_cb = QComboBox()
-        self.passport_kind_cb.addItems(["passport_128x64", "passport_bad_46x49", "passport_happy_46x49", "passport_okay_46x49"])
-        self.passport_kind_cb.setCurrentText("passport_128x64")
-        self.app_name_edit.setToolTip(tr("icon.tip_app_name"))
+        # File — имя экспортируемого файла; список зависит от выбранной папки (Name)
+        self.file_cb = QComboBox()
+        self.file_cb.setToolTip(tr("icon.tip_file"))
 
         self.spin_w = QSpinBox()
         self.spin_w.setRange(1, 128)
@@ -116,8 +122,8 @@ class IconEditorWidget(QWidget):
         self.dither_cb.addItems(["0", "1"])
         self.dither_cb.setCurrentIndex(0)
 
-        self.settings_layout.addRow(tr("icon.lbl_app_name"), self.app_name_edit)
-        self.settings_layout.addRow(tr("icon.lbl_passport_file"), self.passport_kind_cb)
+        self.settings_layout.addRow(tr("icon.lbl_name"), self.name_cb)
+        self.settings_layout.addRow(tr("icon.lbl_file"), self.file_cb)
         self.settings_layout.addRow(tr("icon.lbl_dither_level"), self.dither_cb)
         left_layout.addWidget(self.settings_group)
 
@@ -191,19 +197,20 @@ class IconEditorWidget(QWidget):
         self.btn_add.clicked.connect(self._add_frames)
         self.btn_clear.clicked.connect(self._clear)
 
-        self.app_name_edit.textChanged.connect(self._apply_passport_preset)
-        self.passport_kind_cb.currentTextChanged.connect(self._apply_passport_kind_preset)
+        self.name_cb.currentTextChanged.connect(self._on_name_changed)
+        self.file_cb.currentTextChanged.connect(self._apply_file_preset)
         self.dither_cb.currentTextChanged.connect(self._on_dither_changed)
 
-        self._apply_passport_preset()
-        self._apply_passport_kind_preset(self.passport_kind_cb.currentText())
+        # Начальная синхронизация File с выбранной папкой (Name)
+        self._on_name_changed(self.name_cb.currentText())
 
     def retranslate(self):
         """Обновляет тексты при смене языка."""
         self.settings_group.setTitle(tr("icon.group_settings"))
-        self.app_name_edit.setToolTip(tr("icon.tip_app_name"))
-        self.settings_layout.labelForField(self.app_name_edit).setText(tr("icon.lbl_app_name"))
-        self.settings_layout.labelForField(self.passport_kind_cb).setText(tr("icon.lbl_passport_file"))
+        self.name_cb.setToolTip(tr("icon.tip_app_name"))
+        self.file_cb.setToolTip(tr("icon.tip_file"))
+        self.settings_layout.labelForField(self.name_cb).setText(tr("icon.lbl_name"))
+        self.settings_layout.labelForField(self.file_cb).setText(tr("icon.lbl_file"))
         self.settings_layout.labelForField(self.dither_cb).setText(tr("icon.lbl_dither_level"))
         self.drag_drop.set_text(tr("icon.drag_title"))
         self.btn_add.setText(tr("icon.btn_add"))
@@ -249,45 +256,42 @@ class IconEditorWidget(QWidget):
         self.frames = []
         self._emit_ready()
 
-    def _apply_passport_kind_preset(self, file_name: str | None = None):
+    def _on_name_changed(self, folder: str | None = None):
+        """Обновляет список File под выбранную папку (Name) и подставляет размер."""
+        if folder is None:
+            folder = self.name_cb.currentText()
+        folder = (folder or "").strip()
 
-        """Устанавливает App Name и размеры строго под 4 варианта passport-файлов."""
+        files = list(ICON_PRESETS.get(folder, {}).keys())
+
+        self.file_cb.blockSignals(True)
+        self.file_cb.clear()
+        if files:
+            self.file_cb.addItems(files)
+        self.file_cb.blockSignals(False)
+
+        # Применяем пресет (W/H) первого файла выбранной папки
+        self._apply_file_preset(self.file_cb.currentText())
+
+    def _apply_file_preset(self, file_name: str | None = None):
+        """Устанавливает размеры W/H строго под выбранный файл (File)."""
         if file_name is None:
-            file_name = self.passport_kind_cb.currentText()
-
+            file_name = self.file_cb.currentText()
         file_name = (file_name or "").strip()
-        mapping = {
-            "passport_128x64": ("passport", 128, 64),
-            "passport_bad_46x49": ("passport_bad", 46, 49),
-            "passport_happy_46x49": ("passport_happy", 46, 49),
-            "passport_okay_46x49": ("passport_okay", 46, 49),
-        }
 
-        if file_name in mapping:
-            app_name, w, h = mapping[file_name]
-            self.app_name_edit.blockSignals(True)
-            self.app_name_edit.setText(app_name)
-            self.app_name_edit.blockSignals(False)
-            if self.spin_w.value() != w:
-                self.spin_w.setValue(w)
-            if self.spin_h.value() != h:
-                self.spin_h.setValue(h)
-
-    def _apply_passport_preset(self):
-        base = (self.app_name_edit.text() or "").strip().lower()
-        if base == "passport":
-            if self.spin_w.value() != 128:
-                self.spin_w.setValue(128)
-            if self.spin_h.value() != 64:
-                self.spin_h.setValue(64)
+        folder = (self.name_cb.currentText() or "").strip()
+        dims = ICON_PRESETS.get(folder, {}).get(file_name)
+        if dims is None:
             return
 
-        if base in {"passport_bad", "passport_happy", "passport_okay"}:
-            if self.spin_w.value() != 46:
-                self.spin_w.setValue(46)
-            if self.spin_h.value() != 49:
-                self.spin_h.setValue(49)
-            return
+        w, h = dims
+        if self.spin_w.value() != w:
+            self.spin_w.setValue(w)
+        if self.spin_h.value() != h:
+            self.spin_h.setValue(h)
+
+        # Пересчитываем превью/байты уже загруженных кадров под новый размер
+        self._reprocess_frames()
 
     def _emit_ready(self):
 
@@ -307,7 +311,7 @@ class IconEditorWidget(QWidget):
         dither_level = int(self.dither_cb.currentText().split(" ")[0])
 
         self.icon_ready.emit(
-            self.passport_kind_cb.currentText().split("_")[0],
+            self.name_cb.currentText(),
             payload,
 
             self.spin_w.value(),

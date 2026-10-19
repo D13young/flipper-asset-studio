@@ -18,8 +18,7 @@
 > Сборки создаются автоматически через **GitHub Actions** при каждом теге `v*` —
 > см. [release.yml](.github/workflows/release.yml).
 > macOS-сборка из CI — нативная **arm64** (Apple Silicon); на Intel-мак она
-> работает через Rosetta 2. Также можно собрать локально по инструкции
-> [Сборка исполняемого файла](#-сборка-исполняемого-файла).
+> работает через Rosetta 2.
 
 ---
 
@@ -31,9 +30,11 @@
 - Живой предпросмотр с настраиваемым FPS
 - Автоматическая генерация `meta.txt` и `manifest.txt`
 
-### 📱 Редактор иконок Passport
-- Создание статических иконок
-- Поддержка всех стандартных размеров (46×49 и 128×64)
+### 📱 Редактор иконок (Icons)
+- Выбор папки приложения (Name): **Dolphin, NFC, RFID, SubGhz, Passport**
+- Выбор файла (File) из списка, зависящего от папки, с автоматической
+  подстановкой размеров (например `Fishing_123x52` → 123×52)
+- Экспорт в папку с именем выбранного приложения: `Icons/<Name>/<File>.bmx`
 
 ### 🖼️ Обработка изображений
 - Конвертация PNG → 1-битный формат Flipper
@@ -147,13 +148,19 @@ python main.py
 
 1. **Перейдите на вкладку "📱 Icons"**
 
-2. **Укажите параметры Passport file**
+2. **Выберите Name** — папку приложения (Dolphin, NFC, RFID, SubGhz, Passport),
+   в которую экспортируются файлы
 
-3. **Добавьте кадр**
+3. **Выберите File** — имя файла из списка для выбранной папки
+   (например, для SubGhz: `Fishing_123x52`, `Scanning_123x52`);
+   размер подставится автоматически
 
-4. **Нажмите "Export"**
+4. **Добавьте кадр**
 
-5. **Скопируйте результат** на SD-карту в папку `asset_packs/`
+5. **Нажмите "Export"** — создастся папка с именем Name и файлом с именем File
+   (например `MyPack/SubGhz/Fishing_123x52.bmx`)
+
+6. **Скопируйте результат** на SD-карту в папку `asset_packs/`
 
 ---
 
@@ -248,10 +255,16 @@ MyAssetPack/
 │       └── frame_3.bm
 │
 └── Icons/
-    └── Passport/
-        ├── passport_bad_46x49.bmx
-        ├── passport_happy_46x49.bmx
-        └── passport_okay_46x49.bmx
+    └── SubGhz/                        # папка = выбранный Name
+        ├── Fishing_123x52.bmx         # файл = выбранный File
+        └── Scanning_123x52.bmx
+
+# Другие примеры пар Name/File:
+#   Dolphin:  DolphinSuccess_91x55
+#   NFC:      NFC_dolphin_emulation_51x64
+#   Passport: passport_128x64, passport_bad_46x49,
+#             passport_happy_46x49, passport_okay_46x49
+#   RFID:     RFIDDolphinReceive_97x61, RFIDDolphinSend_97x61
 
 ```
 
